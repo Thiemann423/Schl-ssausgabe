@@ -1,0 +1,1078 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Schlüsselverwaltung</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- React & ReactDOM über CDN -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <!-- Babel, damit wir JSX im Browser nutzen können -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    :root {
+      --bg: #f4f5f7;
+      --primary: #1f6feb;
+      --primary-light: #e1ecff;
+      --border: #d0d7de;
+      --text: #111827;
+      --muted: #6b7280;
+      --danger: #dc2626;
+      --radius-lg: 14px;
+      --radius-xl: 18px;
+      --shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.06);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: radial-gradient(circle at top left, #e0edff, #f9fafb 40%);
+      color: var(--text);
+    }
+
+    .app-root {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px 16px 40px;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      gap: 16px;
+    }
+
+    .app-title {
+      font-size: 24px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .badge {
+      background: var(--primary-light);
+      color: var(--primary);
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+    }
+
+    .user-info {
+      font-size: 13px;
+      text-align: right;
+      color: var(--muted);
+    }
+
+    .user-info strong {
+      display: block;
+      color: var(--text);
+    }
+
+    .card {
+      background: #ffffffcc;
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow-soft);
+      border: 1px solid rgba(209, 213, 219, 0.6);
+      padding: 18px 20px;
+      backdrop-filter: blur(8px);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .tab-btn {
+      border-radius: 999px;
+      border: 1px solid transparent;
+      padding: 8px 14px;
+      font-size: 14px;
+      cursor: pointer;
+      background: transparent;
+      color: var(--muted);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .tab-btn.active {
+      background: var(--primary);
+      color: white;
+      border-color: var(--primary);
+      box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+    }
+
+    .tab-btn:not(.active):hover {
+      background: #e5e7eb;
+    }
+
+    .pill {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.7);
+      color: var(--primary);
+      border: 1px solid rgba(209, 213, 219, 0.8);
+    }
+
+    .dashboard-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .dashboard-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: white;
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--muted);
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: white;
+      box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+    }
+
+    .btn:hover {
+      filter: brightness(0.97);
+    }
+
+    .btn-icon {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 1px solid currentColor;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .dashboard-cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    @media (max-width: 900px) {
+      .dashboard-cards {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 640px) {
+      .dashboard-cards {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .user-info {
+        text-align: left;
+      }
+    }
+
+    .stat-card {
+      border-radius: 16px;
+      border: 1px solid rgba(209, 213, 219, 0.9);
+      background: linear-gradient(135deg, #ffffff, #f3f4ff);
+      padding: 10px 12px;
+    }
+
+    .stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      margin-bottom: 4px;
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    .stat-sub {
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .stat-value.danger {
+      color: var(--danger);
+    }
+
+    .filters-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 10px;
+      align-items: center;
+    }
+
+    .input,
+    .select {
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      padding: 7px 10px;
+      font-size: 13px;
+      background: white;
+      min-width: 140px;
+    }
+
+    .input::placeholder {
+      color: #9ca3af;
+    }
+
+    .table-wrapper {
+      border-radius: 14px;
+      border: 1px solid rgba(209, 213, 219, 0.8);
+      overflow: hidden;
+      background: white;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    thead {
+      background: #f3f4f6;
+    }
+
+    th,
+    td {
+      padding: 8px 10px;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+    }
+
+    th {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+
+    tbody tr:hover {
+      background: #f9fafb;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      border: 1px solid #e5e7eb;
+      background: #f9fafb;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .layout-2col {
+      display: grid;
+      grid-template-columns: 2fr 1.3fr;
+      gap: 16px;
+    }
+
+    @media (max-width: 900px) {
+      .layout-2col {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .form-group {
+      margin-bottom: 10px;
+    }
+
+    .form-label {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      display: block;
+      color: #374151;
+    }
+
+    .form-help {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 70px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      padding: 8px 10px;
+      font-size: 13px;
+      resize: vertical;
+    }
+
+    .section-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    .section-sub {
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 10px;
+    }
+
+    .signatures {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    @media (max-width: 640px) {
+      .signatures {
+        grid-template-columns: minmax(0, 1fr);
+      }
+    }
+
+    .signature-card {
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: #f9fafb;
+      padding: 8px;
+    }
+
+    .signature-name {
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+    }
+
+    .signature-role {
+      font-size: 11px;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .signature-canvas-wrapper {
+      border-radius: 10px;
+      border: 1px dashed #cbd5f5;
+      background: white;
+      overflow: hidden;
+      position: relative;
+    }
+
+    canvas.signature-canvas {
+      width: 100%;
+      height: 140px;
+      display: block;
+      touch-action: none;
+      cursor: crosshair;
+    }
+
+    .signature-toolbar {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 4px 0;
+      font-size: 11px;
+      color: var(--muted);
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn-ghost {
+      border: none;
+      background: transparent;
+      padding: 2px 6px;
+      border-radius: 999px;
+      font-size: 11px;
+      cursor: pointer;
+      color: var(--muted);
+    }
+
+    .btn-ghost:hover {
+      background: #e5e7eb;
+    }
+
+    .footer-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 12px;
+      flex-wrap: wrap;
+    }
+
+    .chip {
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      padding: 4px 10px;
+      font-size: 11px;
+      color: var(--muted);
+      background: #f9fafb;
+    }
+
+    .empty-state {
+      padding: 12px;
+      text-align: center;
+      font-size: 13px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div id="root" class="app-root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // -----------------------------------------------------------
+    // Demo-Daten (Platzhalter) – später durch API-Aufrufe ersetzen
+    // -----------------------------------------------------------
+    const demoEmployees = [
+      { employeeId: '1', personnelNumber: '0320684065', fullName: 'Pieper, Franziska', department: 'Verwaltung' },
+      { employeeId: '2', personnelNumber: '0320684066', fullName: 'Müller, Hans', department: 'Technik' },
+    ];
+
+    const demoKeys = [
+      { keyId: 'k1', system: 'HC 6', number: 'Nr. 3', description: 'Eingang Haupthaus' },
+      { keyId: 'k2', system: 'HC 6', number: 'Nr. 4', description: 'Büro 2.OG' },
+      { keyId: 'k3', system: 'GK', number: 'GK_Technik', description: 'Generalschlüssel Technik' },
+    ];
+
+    const demoIssues = [
+      {
+        keyId: 'k1',
+        employeeId: '1',
+        employeeName: 'Pieper, Franziska',
+        personnelNumber: '0320684065',
+        department: 'Verwaltung',
+        system: 'HC 6',
+        number: 'Nr. 3',
+        issueDate: '2025-11-01',
+      },
+      {
+        keyId: 'k3',
+        employeeId: '2',
+        employeeName: 'Müller, Hans',
+        personnelNumber: '0320684066',
+        department: 'Technik',
+        system: 'GK',
+        number: 'GK_Technik',
+        issueDate: '2025-11-10',
+      },
+    ];
+
+    // -----------------------------------------------------------
+    // SignaturePad – Canvas für Unterschrift (Maus/Touch)
+    // -----------------------------------------------------------
+    function SignaturePad({ value, onChange, label, role }) {
+      const canvasRef = useRef(null);
+      const drawing = useRef(false);
+      const lastPos = useRef({ x: 0, y: 0 });
+
+      useEffect(() => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const resize = () => {
+          const rect = canvas.getBoundingClientRect();
+          const imageData = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height);
+          canvas.width = rect.width;
+          canvas.height = 140;
+          canvas.getContext('2d').putImageData(imageData, 0, 0);
+        };
+
+        resize();
+        window.addEventListener('resize', resize);
+        return () => window.removeEventListener('resize', resize);
+      }, []);
+
+      const getPos = (e) => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        if (e.touches && e.touches.length > 0) {
+          return {
+            x: e.touches[0].clientX - rect.left,
+            y: e.touches[0].clientY - rect.top,
+          };
+        } else {
+          return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top,
+          };
+        }
+      };
+
+      const startDrawing = (e) => {
+        e.preventDefault();
+        drawing.current = true;
+        lastPos.current = getPos(e);
+      };
+
+      const draw = (e) => {
+        if (!drawing.current) return;
+        e.preventDefault();
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        ctx.lineWidth = 2;
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = '#111827';
+
+        const pos = getPos(e);
+        ctx.beginPath();
+        ctx.moveTo(lastPos.current.x, lastPos.current.y);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
+        lastPos.current = pos;
+      };
+
+      const stopDrawing = () => {
+        if (!drawing.current) return;
+        drawing.current = false;
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const dataUrl = canvas.toDataURL('image/png');
+        onChange && onChange(dataUrl);
+      };
+
+      const handleClear = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        onChange && onChange(null);
+      };
+
+      return (
+        <div className="signature-card">
+          <div className="signature-name">{label}</div>
+          <div className="signature-role">{role}</div>
+          <div className="signature-canvas-wrapper">
+            <canvas
+              ref={canvasRef}
+              className="signature-canvas"
+              onMouseDown={startDrawing}
+              onMouseMove={draw}
+              onMouseUp={stopDrawing}
+              onMouseLeave={stopDrawing}
+              onTouchStart={startDrawing}
+              onTouchMove={draw}
+              onTouchEnd={stopDrawing}
+            />
+          </div>
+          <div className="signature-toolbar">
+            <span>PC: Maus / Tablet | iPad: Finger/Stift</span>
+            <button type="button" className="btn-ghost" onClick={handleClear}>
+              Leeren
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // -----------------------------------------------------------
+    // Dashboard – Übersicht
+    // -----------------------------------------------------------
+    function Dashboard({ issues }) {
+      const [collapsed, setCollapsed] = useState(false);
+      const [search, setSearch] = useState('');
+      const [department, setDepartment] = useState('');
+      const [system, setSystem] = useState('');
+
+      const outstandingCount = issues.length;
+      const departments = Array.from(new Set(issues.map(i => i.department).filter(Boolean)));
+      const systems = Array.from(new Set(issues.map(i => i.system).filter(Boolean)));
+
+      const filtered = issues.filter(i => {
+        let match = true;
+        const term = search.toLowerCase();
+        if (term) {
+          match =
+            (i.employeeName || '').toLowerCase().includes(term) ||
+            (i.personnelNumber || '').toLowerCase().includes(term);
+        }
+        if (match && department) {
+          match = i.department === department;
+        }
+        if (match && system) {
+          match = i.system === system;
+        }
+        return match;
+      });
+
+      return (
+        <div className="card">
+          <div className="dashboard-header">
+            <div>
+              <div className="section-title">Dashboard</div>
+              <div className="section-sub">
+                Übersicht über aktuell ausgegebene Schlüssel und offene Rückgaben.
+              </div>
+            </div>
+            <div className="dashboard-actions">
+              <button
+                type="button"
+                className="btn"
+                onClick={() => setCollapsed(!collapsed)}
+              >
+                <span className="btn-icon">{collapsed ? '▸' : '▾'}</span>
+                Dashboard {collapsed ? 'anzeigen' : 'ausblenden'}
+              </button>
+            </div>
+          </div>
+
+          {!collapsed && (
+            <>
+              <div className="dashboard-cards">
+                <div className="stat-card">
+                  <div className="stat-label">Aktiv ausgegebene Schlüssel</div>
+                  <div className="stat-value">{outstandingCount}</div>
+                  <div className="stat-sub">ohne erfasste Rückgabe</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Abteilungen</div>
+                  <div className="stat-value">{departments.length}</div>
+                  <div className="stat-sub">mit mindestens einem ausgegebenen Schlüssel</div>
+                </div>
+                <div className="stat-card">
+                  <div className="stat-label">Schließsysteme</div>
+                  <div className="stat-value">{systems.length}</div>
+                  <div className="stat-sub">im Einsatz</div>
+                </div>
+              </div>
+
+              <div className="filters-row">
+                <input
+                  className="input"
+                  placeholder="Suche nach Name oder Personalnummer…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+                <select
+                  className="select"
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                >
+                  <option value="">Alle Abteilungen</option>
+                  {departments.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+                <select
+                  className="select"
+                  value={system}
+                  onChange={(e) => setSystem(e.target.value)}
+                >
+                  <option value="">Alle Schließsysteme</option>
+                  {systems.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+                <span className="chip">
+                  {filtered.length} Einträge gefunden
+                </span>
+              </div>
+
+              <div className="table-wrapper">
+                {filtered.length === 0 ? (
+                  <div className="empty-state">
+                    Keine aktiven Schlüssel mit diesen Filtern gefunden.
+                  </div>
+                ) : (
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Mitarbeiter</th>
+                        <th>Personalnr.</th>
+                        <th>Abteilung</th>
+                        <th>Schließsystem</th>
+                        <th>Schlüssel</th>
+                        <th>Ausgabedatum</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((row, idx) => (
+                        <tr key={idx}>
+                          <td>{row.employeeName}</td>
+                          <td>{row.personnelNumber}</td>
+                          <td>{row.department}</td>
+                          <td><span className="tag">{row.system}</span></td>
+                          <td>{row.number} – {row.description}</td>
+                          <td>{row.issueDate}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      );
+    }
+
+    // -----------------------------------------------------------
+    // Formular: Schlüssel ausgeben
+    // -----------------------------------------------------------
+    function IssueForm() {
+      const [employeeSearch, setEmployeeSearch] = useState('');
+      const [selectedEmployee, setSelectedEmployee] = useState(null);
+      const [selectedKeyId, setSelectedKeyId] = useState('');
+      const [comment, setComment] = useState('');
+      const [issuedBySignature, setIssuedBySignature] = useState(null);
+      const [receivedBySignature, setReceivedBySignature] = useState(null);
+
+      const filteredEmployees = demoEmployees.filter((e) => {
+        const term = employeeSearch.toLowerCase();
+        if (!term) return true;
+        return (
+          e.fullName.toLowerCase().includes(term) ||
+          e.personnelNumber.toLowerCase().includes(term)
+        );
+      });
+
+      const handleSelectEmployee = (id) => {
+        const emp = demoEmployees.find((e) => e.employeeId === id);
+        setSelectedEmployee(emp || null);
+      };
+
+      const handleSubmit = (e) => {
+        e.preventDefault();
+        if (!selectedEmployee || !selectedKeyId || !issuedBySignature || !receivedBySignature) {
+          alert('Bitte Mitarbeiter, Schlüssel und beide Unterschriften erfassen.');
+          return;
+        }
+
+        const key = demoKeys.find(k => k.keyId === selectedKeyId);
+
+        const payload = {
+          employeeId: selectedEmployee.employeeId,
+          keyId: selectedKeyId,
+          comment,
+          issuedBySignatureBase64: issuedBySignature,
+          receivedBySignatureBase64: receivedBySignature,
+        };
+
+        console.log('AUFGABE: an Backend senden /api/key-issues (ISSUE)', payload);
+        console.log('Schlüssel:', key);
+
+        // TODO: Hier später echten API-Call einbauen, z.B.:
+        // fetch('/api/key-issues', { method: 'POST', headers: {...}, body: JSON.stringify(payload) })
+        // Backend erzeugt dann PDF und lädt es in OneDrive hoch.
+
+        alert('Demo: Schlüssel-Ausgabe wurde lokal protokolliert (siehe Konsole).');
+      };
+
+      return (
+        <div className="card">
+          <div className="section-title">Schlüssel ausgeben</div>
+          <div className="section-sub">
+            Erfasse die Ausgabe eines Schlüssels inklusive Unterschriften und Übergabeprotokoll.
+          </div>
+
+          <form onSubmit={handleSubmit}>
+            <div className="layout-2col">
+              <div>
+                <div className="form-group">
+                  <label className="form-label">Mitarbeiter suchen</label>
+                  <input
+                    className="input"
+                    placeholder="Name oder Personalnummer eingeben…"
+                    value={employeeSearch}
+                    onChange={(e) => setEmployeeSearch(e.target.value)}
+                  />
+                  <div className="form-help">
+                    Die Stammdaten kommen aktuell aus deiner Personal-Liste (später HR-App).
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Mitarbeiter auswählen</label>
+                  <select
+                    className="select"
+                    onChange={(e) => handleSelectEmployee(e.target.value)}
+                    value={selectedEmployee?.employeeId || ''}
+                  >
+                    <option value="">Bitte auswählen…</option>
+                    {filteredEmployees.map((e) => (
+                      <option key={e.employeeId} value={e.employeeId}>
+                        {e.fullName} ({e.personnelNumber})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {selectedEmployee && (
+                  <>
+                    <div className="form-group">
+                      <label className="form-label">Abteilung</label>
+                      <input
+                        className="input"
+                        value={selectedEmployee.department || ''}
+                        readOnly
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Personalnummer</label>
+                      <input
+                        className="input"
+                        value={selectedEmployee.personnelNumber}
+                        readOnly
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Name</label>
+                      <input
+                        className="input"
+                        value={selectedEmployee.fullName}
+                        readOnly
+                      />
+                    </div>
+                  </>
+                )}
+
+                <div className="form-group">
+                  <label className="form-label">Schlüssel auswählen</label>
+                  <select
+                    className="select"
+                    value={selectedKeyId}
+                    onChange={(e) => setSelectedKeyId(e.target.value)}
+                  >
+                    <option value="">Bitte auswählen…</option>
+                    {demoKeys.map((k) => (
+                      <option key={k.keyId} value={k.keyId}>
+                        {k.system} – {k.number} ({k.description})
+                      </option>
+                    ))}
+                  </select>
+                  <div className="form-help">
+                    Pro physischem Schlüssel wird ein Datensatz geführt (Schließsystem + Nummer + Beschreibung).
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Weitere Schlüssel / Bemerkungen</label>
+                  <textarea
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    placeholder="Optionale Zusatzinformationen zur Ausgabe…"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <div className="section-title">Unterschriften</div>
+                <div className="section-sub">
+                  Beide Unterschriften werden im PDF-Protokoll gespeichert (PC & iPad geeignet).
+                </div>
+                <div className="signatures">
+                  <SignaturePad
+                    label="Ausgehändigt durch"
+                    role="Mitarbeiter, der den Schlüssel übergibt"
+                    value={issuedBySignature}
+                    onChange={setIssuedBySignature}
+                  />
+                  <SignaturePad
+                    label="Empfangen durch"
+                    role="Mitarbeiter, der den Schlüssel erhält"
+                    value={receivedBySignature}
+                    onChange={setReceivedBySignature}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="footer-actions">
+              <button type="button" className="btn">Abbrechen</button>
+              <button type="submit" className="btn btn-primary">
+                Schlüssel-Ausgabe speichern &amp; PDF erzeugen
+              </button>
+            </div>
+          </form>
+        </div>
+      );
+    }
+
+    // -----------------------------------------------------------
+    // Formular: Rückgabe
+    // -----------------------------------------------------------
+    function ReturnForm() {
+      const [search, setSearch] = useState('');
+
+      const filteredIssues = demoIssues.filter((i) => {
+        const term = search.toLowerCase();
+        if (!term) return true;
+        return (
+          (i.employeeName || '').toLowerCase().includes(term) ||
+          (i.personnelNumber || '').toLowerCase().includes(term)
+        );
+      });
+
+      const handleReturn = (issue) => {
+        // Hier könnte ein Dialog mit Unterschriften kommen – zur Vereinfachung loggen wir nur.
+        console.log('AUFGABE: Rückgabe-Prozess starten für', issue);
+        alert('Demo: Rückgabe-Prozess müsste hier mit Unterschriften umgesetzt werden.');
+      };
+
+      return (
+        <div className="card">
+          <div className="section-title">Rückgabe erfassen</div>
+          <div className="section-sub">
+            Mitarbeiter verlassen das Unternehmen oder geben Schlüssel zurück – hier erfassen.
+          </div>
+
+          <div className="filters-row">
+            <input
+              className="input"
+              placeholder="Mitarbeiter oder Personalnummer suchen…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <span className="chip">
+              {filteredIssues.length} offene Ausgaben
+            </span>
+          </div>
+
+          <div className="table-wrapper">
+            {filteredIssues.length === 0 ? (
+              <div className="empty-state">
+                Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.
+              </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Mitarbeiter</th>
+                    <th>Personalnr.</th>
+                    <th>Abteilung</th>
+                    <th>Schlüssel</th>
+                    <th>Ausgabedatum</th>
+                    <th>Aktion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredIssues.map((i, idx) => (
+                    <tr key={idx}>
+                      <td>{i.employeeName}</td>
+                      <td>{i.personnelNumber}</td>
+                      <td>{i.department}</td>
+                      <td>{i.system} – {i.number} ({i.description})</td>
+                      <td>{i.issueDate}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="btn"
+                          onClick={() => handleReturn(i)}
+                        >
+                          Rückgabe erfassen
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    // -----------------------------------------------------------
+    // Haupt-App
+    // -----------------------------------------------------------
+    function App() {
+      const [activeTab, setActiveTab] = useState('dashboard');
+
+      // TODO: Hier später Azure AD Login mit MSAL integrieren
+      //       und Access-Token für API-Aufrufe nutzen.
+      const fakeUser = {
+        name: 'Max Mustermann',
+        email: 'max.mustermann@firma.de',
+      };
+
+      return (
+        <>
+          <header>
+            <div className="app-title">
+              🔑 Schlüsselverwaltung
+              <span className="badge">Intern</span>
+            </div>
+            <div className="user-info">
+              <strong>{fakeUser.name}</strong>
+              <span>{fakeUser.email}</span>
+              <span>Login später über Microsoft / Azure AD</span>
+            </div>
+          </header>
+
+          <div className="card" style={{ marginBottom: 14 }}>
+            <div className="tabs">
+              <button
+                className={'tab-btn ' + (activeTab === 'dashboard' ? 'active' : '')}
+                onClick={() => setActiveTab('dashboard')}
+              >
+                <span className="btn-icon">📊</span>
+                Dashboard
+              </button>
+              <button
+                className={'tab-btn ' + (activeTab === 'issue' ? 'active' : '')}
+                onClick={() => setActiveTab('issue')}
+              >
+                <span className="btn-icon">➕</span>
+                Ausgabe
+                <span className="pill">mit Unterschrift</span>
+              </button>
+              <button
+                className={'tab-btn ' + (activeTab === 'return' ? 'active' : '')}
+                onClick={() => setActiveTab('return')}
+              >
+                <span className="btn-icon">↩</span>
+                Rückgabe
+              </button>
+            </div>
+          </div>
+
+          {activeTab === 'dashboard' && <Dashboard issues={demoIssues} />}
+          {activeTab === 'issue' && <IssueForm />}
+          {activeTab === 'return' && <ReturnForm />}
+        </>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

@@ -5,6 +5,9 @@
   <title>Schlüsselverwaltung</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
 
+  <!-- MSAL für Microsoft Login / Tokens -->
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+
   <!-- React & ReactDOM über CDN -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
@@ -439,78 +442,228 @@
     const { useState, useEffect, useRef } = React;
 
     // -----------------------------------------------------------
-    // 1) STAMMDATEN & HISTORIE
-    //    -> hier kannst du später echte Daten aus Backend/HR-App einspeisen
+    // OneDrive / Graph: Daten aus Personal.txt + Excel laden
     // -----------------------------------------------------------
 
-    // Mitarbeiter-Stammdaten (Personalnummer <-> Name)
-    const EMPLOYEES = [
-      { employeeId: "e1", personnelNumber: "0320684065", fullName: "Pieper, Franziska", department: "Verwaltung" },
-      { employeeId: "e2", personnelNumber: "0320586727", fullName: "Heinze, Martin", department: "Käserei" },
-      { employeeId: "e3", personnelNumber: "0301981417", fullName: "Tiemann, Frank", department: "Käserei" },
-      { employeeId: "e4", personnelNumber: "0301651024", fullName: "Geiger, Elena", department: "Produktion" },
-      { employeeId: "e5", personnelNumber: "0301643549", fullName: "Wecke, Susanne", department: "Produktion" },
-      // TODO: hier alle weiteren Mitarbeiter aus Personal.txt ergänzen
-    ];
+    // TODO: HIER eure echten IDs eintragen:
+    const msalConfig = {
+      auth: {
+        clientId: "DEINE_CLIENT_ID_AUS_AZURE_AD", // z.B. 12345678-abcd-...
+        authority: "https://login.microsoftonline.com/DEINE_TENANT_ID", // z.B. 11111111-2222-...
+        redirectUri: window.location.origin,
+      },
+    };
 
-    // Schlüssel-Stammdaten (vereinfachte Liste aus deiner Excel)
-    const KEYS = [
-      { keyId: "k1", system: "HC 6", number: "Nr. 3", description: "HC 6, Nr. 3 (z.B. Eingang Haupthaus)" },
-      { keyId: "k2", system: "HC 6", number: "Nr. 4", description: "HC 6, Nr. 4" },
-      { keyId: "k3", system: "HAL 639", number: "", description: "HAL 639" },
-      { keyId: "k4", system: "HC 7", number: "", description: "HC 7" },
-      { keyId: "k5", system: "Generalschlüssel", number: "", description: "Generalschlüssel Technik" },
-      // TODO: hier alle weiteren Schließsysteme/Schlüssel aus der Excel ergänzen
-    ];
+    const loginRequest = {
+      scopes: [
+        "User.Read",
+        "Files.Read",
+        "Files.Read.All",
+      ],
+    };
 
-    // Historische Ausgaben aus deiner Excel (vereinfacht):
-    const HISTORICAL_ISSUES = [
-      {
-        id: 1,
-        employeeName: "Heinze, Martin",
-        personnelNumber: "0320586727",
-        department: "Käserei",
-        system: "HC 6, Nr. 3, Nr. 4",
-        otherKeys: "Hoftor Discus, Fernbedienung Milchannahme",
-        issueDate: "2001-09-25",
-        hasReturn: false,
-        returnInfo: null,
-      },
-      {
-        id: 2,
-        employeeName: "H. Endemann",
-        personnelNumber: null,
-        department: "Käserei",
-        system: null,
-        otherKeys: "Haustür Wohnblock, WHG neben Heinze, Briefkasten 2x",
-        issueDate: "2010-09-17",
-        hasReturn: false,
-        returnInfo: null,
-      },
-      {
-        id: 3,
-        employeeName: "Tiemann, Frank",
-        personnelNumber: "0301981417",
-        department: "Käserei",
-        system: "HAL 639, HC 7",
-        otherKeys: null,
-        issueDate: "2015-06-08",
-        hasReturn: false,
-        returnInfo: null,
-      },
-      {
-        id: 4,
-        employeeName: "Pieper, Franziska",
-        personnelNumber: "0320684065",
-        department: "Verwaltung",
-        system: "HC 6, Nr. 3",
-        otherKeys: "Fernbedienung Milchannahme",
-        issueDate: "2020-01-10",
-        hasReturn: true,
-        returnInfo: "Rückgabe 2022-03-01",
-      },
-      // TODO: hier weitere Zeilen aus der Excel ergänzen
-    ];
+    const msalInstance = new msal.PublicClientApplication(msalConfig);
+
+    async function getGraphClient() {
+      let account = msalInstance.getActiveAccount();
+      if (!account) {
+        const accounts = msalInstance.getAllAccounts();
+        if (accounts.length > 0) {
+          account = accounts[0];
+        }
+      }
+
+      if (!account) {
+        const loginResult = await msalInstance.loginPopup(loginRequest);
+        account = loginResult.account;
+      }
+
+      msalInstance.setActiveAccount(account);
+
+      const tokenResponse = await msalInstance.acquireTokenSilent({
+        ...loginRequest,
+        account,
+      });
+
+      const accessToken = tokenResponse.accessToken;
+
+      const graphClient = {
+        async get(url, responseType = "json") {
+          const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
+            headers: { Authorization: "Bearer " + accessToken },
+          });
+          if (!res.ok) {
+            throw new Error("Graph-Fehler " + res.status + ": " + (await res.text()));
+          }
+          if (responseType === "text") return res.text();
+          return res.json();
+        },
+      };
+
+      return { graphClient, account };
+    }
+
+    async function loadEmployeesFromPersonalTxt(graphClient) {
+      const path = "/me/drive/root:/SchluesselAusgabe/Personal.txt:/content";
+      const content = await graphClient.get(path, "text");
+
+      const lines = content.split(/\\r?\\n/);
+      const employees = [];
+      let idCounter = 1;
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        const parts = trimmed.split(";");
+        if (parts.length < 2) continue;
+        const personnelNumber = parts[0].trim();
+        const fullName = parts[1].trim();
+        employees.push({
+          employeeId: "e" + idCounter++,
+          personnelNumber,
+          fullName,
+          department: null,
+        });
+      }
+      return employees;
+    }
+
+    async function loadExcelIssues(graphClient) {
+      // TODO: Tabellenblatt-Namen ggf. anpassen ("Tabelle1")
+      const excelBasePath =
+        "/me/drive/root:/SchluesselAusgabe/Schlüssel Schließplan Verteilung Mitarbeiter.xlsx";
+      const rangeUrl =
+        excelBasePath + ":/workbook/worksheets('Tabelle1')/usedRange(valuesOnly=true)";
+      const json = await graphClient.get(rangeUrl, "json");
+
+      const rows = json.values;
+      if (!rows || rows.length === 0) return [];
+
+      const header = rows[0].map((h) => String(h).trim());
+      const dataRows = rows.slice(1);
+
+      const indexOf = (name) => header.findIndex((h) => h === name);
+
+      const idxAbteilung = indexOf("Abteilung");
+      const idxPersonalnr = indexOf("Personalnummer");
+      const idxName = indexOf("Name");
+      const idxSystem = indexOf("Schließsystem");
+      const idxWeitere = indexOf("weitere Schlüssel");
+      const idxDatum = indexOf("Datum");
+      const idxRueckgabe = indexOf("Rückgabe");
+
+      const issues = [];
+      let i = 1;
+
+      for (const row of dataRows) {
+        if (!row || row.length === 0) continue;
+        const value = (idx) =>
+          idx >= 0 && idx < row.length && row[idx] != null && row[idx] !== ""
+            ? String(row[idx]).trim()
+            : null;
+
+        const department = value(idxAbteilung);
+        const pnRaw = value(idxPersonalnr);
+        const name = value(idxName);
+        const system = value(idxSystem);
+        const otherKeys = value(idxWeitere);
+        const dateVal = value(idxDatum);
+        const rueckgabe = value(idxRueckgabe);
+
+        let issueDate = dateVal || null;
+        const hasReturn = !!rueckgabe;
+        const returnInfo = rueckgabe || null;
+
+        let personnelNumber = pnRaw;
+        if (pnRaw && /^\\d+\\.0$/.test(pnRaw)) {
+          personnelNumber = String(parseInt(pnRaw, 10));
+        }
+
+        issues.push({
+          id: i++,
+          employeeName: name,
+          personnelNumber,
+          department,
+          system,
+          otherKeys,
+          issueDate,
+          hasReturn,
+          returnInfo,
+        });
+      }
+      return issues;
+    }
+
+    function buildKeysFromIssues(issues) {
+      const systems = new Set();
+      for (const i of issues) {
+        if (i.system) systems.add(i.system);
+      }
+      const keys = [];
+      let idx = 1;
+      for (const sys of Array.from(systems).sort()) {
+        keys.push({
+          keyId: "k" + idx++,
+          system: sys,
+          number: "",
+          description: sys,
+        });
+      }
+      return keys;
+    }
+
+    function mergeEmployees(employees, issues) {
+      const byPn = new Map();
+      const byName = new Map();
+
+      for (const emp of employees) {
+        if (emp.personnelNumber) byPn.set(emp.personnelNumber, emp);
+        if (emp.fullName) byName.set(emp.fullName.toLowerCase(), emp);
+      }
+
+      for (const issue of issues) {
+        const name = issue.employeeName;
+        const pn = issue.personnelNumber;
+        const dept = issue.department;
+
+        let emp = null;
+        if (pn && byPn.has(pn)) emp = byPn.get(pn);
+        else if (name && byName.has(name.toLowerCase())) emp = byName.get(name.toLowerCase());
+
+        if (!emp && (name || pn)) {
+          emp = {
+            employeeId: "e" + (employees.length + 1),
+            personnelNumber: pn || null,
+            fullName: name || null,
+            department: dept || null,
+          };
+          employees.push(emp);
+        }
+
+        if (emp) {
+          if (emp.personnelNumber && !byPn.has(emp.personnelNumber))
+            byPn.set(emp.personnelNumber, emp);
+          if (emp.fullName && !byName.has(emp.fullName.toLowerCase()))
+            byName.set(emp.fullName.toLowerCase(), emp);
+          if (dept && !emp.department) emp.department = dept;
+        }
+      }
+      return employees;
+    }
+
+    async function fetchOneDriveData() {
+      const { graphClient, account } = await getGraphClient();
+      const [employeesFromTxt, issuesFromExcel] = await Promise.all([
+        loadEmployeesFromPersonalTxt(graphClient),
+        loadExcelIssues(graphClient),
+      ]);
+
+      const employees = mergeEmployees([...employeesFromTxt], issuesFromExcel);
+      const keys = buildKeysFromIssues(issuesFromExcel);
+      const issues = issuesFromExcel;
+
+      return { employees, keys, issues, account };
+    }
 
     // -----------------------------------------------------------
     // SignaturePad – Canvas für Unterschrift (Maus/Touch)
@@ -621,16 +774,15 @@
     }
 
     // -----------------------------------------------------------
-    // Dashboard – Übersicht (nutzt historische Ausgaben)
+    // Dashboard – Übersicht (nutzt issues-Prop)
     // -----------------------------------------------------------
-    function Dashboard() {
+    function Dashboard({ issues }) {
       const [collapsed, setCollapsed] = useState(false);
       const [search, setSearch] = useState("");
       const [department, setDepartment] = useState("");
       const [system, setSystem] = useState("");
 
-      // Nur Ausgaben ohne Rückgabe:
-      const outstanding = HISTORICAL_ISSUES.filter((i) => !i.hasReturn);
+      const outstanding = issues.filter((i) => !i.hasReturn);
       const departments = Array.from(
         new Set(outstanding.map((i) => (i.department || "").trim()).filter(Boolean))
       );
@@ -710,9 +862,7 @@
                 >
                   <option value="">Alle Abteilungen</option>
                   {departments.map((d) => (
-                    <option key={d} value={d}>
-                      {d}
-                    </option>
+                    <option key={d} value={d}>{d}</option>
                   ))}
                 </select>
                 <select
@@ -722,9 +872,7 @@
                 >
                   <option value="">Alle Schließsysteme</option>
                   {systems.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
+                    <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
                 <span className="chip">{filtered.length} Einträge gefunden</span>
@@ -753,9 +901,7 @@
                           <td>{row.employeeName}</td>
                           <td>{row.personnelNumber || "–"}</td>
                           <td>{(row.department || "").trim()}</td>
-                          <td>
-                            <span className="tag">{row.system || "n/a"}</span>
-                          </td>
+                          <td><span className="tag">{row.system || "n/a"}</span></td>
                           <td>{row.otherKeys || "–"}</td>
                           <td>{row.issueDate}</td>
                         </tr>
@@ -771,10 +917,9 @@
     }
 
     // -----------------------------------------------------------
-    // Formular: Schlüssel ausgeben
-    //    – nutzt EMPLOYEES & KEYS
+    // Formular: Schlüssel ausgeben – nutzt employees & keys
     // -----------------------------------------------------------
-    function IssueForm() {
+    function IssueForm({ employees, keys }) {
       const [employeeSearch, setEmployeeSearch] = useState("");
       const [selectedEmployee, setSelectedEmployee] = useState(null);
       const [selectedKeyId, setSelectedKeyId] = useState("");
@@ -782,17 +927,17 @@
       const [issuedBySignature, setIssuedBySignature] = useState(null);
       const [receivedBySignature, setReceivedBySignature] = useState(null);
 
-      const filteredEmployees = EMPLOYEES.filter((e) => {
+      const filteredEmployees = employees.filter((e) => {
         const term = employeeSearch.toLowerCase();
         if (!term) return true;
         return (
-          e.fullName.toLowerCase().includes(term) ||
-          e.personnelNumber.toLowerCase().includes(term)
+          (e.fullName || "").toLowerCase().includes(term) ||
+          (e.personnelNumber || "").toLowerCase().includes(term)
         );
       });
 
       const handleSelectEmployee = (id) => {
-        const emp = EMPLOYEES.find((e) => e.employeeId === id);
+        const emp = employees.find((e) => e.employeeId === id);
         setSelectedEmployee(emp || null);
       };
 
@@ -803,7 +948,7 @@
           return;
         }
 
-        const key = KEYS.find((k) => k.keyId === selectedKeyId);
+        const key = keys.find((k) => k.keyId === selectedKeyId);
 
         const payload = {
           employeeId: selectedEmployee.employeeId,
@@ -819,11 +964,6 @@
         };
 
         console.log("AUFGABE: an Backend senden /api/key-issues (ISSUE)", payload);
-
-        // TODO: Hier später echten API-Call einbauen:
-        // fetch('/api/key-issues', { method: 'POST', headers: {...}, body: JSON.stringify(payload) })
-        // -> Backend erzeugt PDF & lädt es in OneDrive (JJJJ/MM) hoch
-
         alert("Demo: Schlüssel-Ausgabe wurde lokal protokolliert (siehe Browser-Konsole).");
       };
 
@@ -846,7 +986,7 @@
                     onChange={(e) => setEmployeeSearch(e.target.value)}
                   />
                   <div className="form-help">
-                    Stammdaten: Personalnummer & Name (später direkt aus HR-App).
+                    Stammdaten kommen aus Personal.txt + Excel (später HR-App).
                   </div>
                 </div>
 
@@ -880,7 +1020,7 @@
                       <label className="form-label">Personalnummer</label>
                       <input
                         className="input"
-                        value={selectedEmployee.personnelNumber}
+                        value={selectedEmployee.personnelNumber || ""}
                         readOnly
                       />
                     </div>
@@ -888,7 +1028,7 @@
                       <label className="form-label">Name</label>
                       <input
                         className="input"
-                        value={selectedEmployee.fullName}
+                        value={selectedEmployee.fullName || ""}
                         readOnly
                       />
                     </div>
@@ -903,7 +1043,7 @@
                     onChange={(e) => setSelectedKeyId(e.target.value)}
                   >
                     <option value="">Bitte auswählen…</option>
-                    {KEYS.map((k) => (
+                    {keys.map((k) => (
                       <option key={k.keyId} value={k.keyId}>
                         {k.system} {k.number ? "– " + k.number : ""} ({k.description})
                       </option>
@@ -958,12 +1098,12 @@
     }
 
     // -----------------------------------------------------------
-    // Formular: Rückgabe (nutzt HISTORICAL_ISSUES)
+    // Formular: Rückgabe (nutzt issues-Prop)
     // -----------------------------------------------------------
-    function ReturnForm() {
+    function ReturnForm({ issues }) {
       const [search, setSearch] = useState("");
 
-      const outstanding = HISTORICAL_ISSUES.filter((i) => !i.hasReturn);
+      const outstanding = issues.filter((i) => !i.hasReturn);
 
       const filteredIssues = outstanding.filter((i) => {
         const term = search.toLowerCase();
@@ -976,9 +1116,7 @@
 
       const handleReturn = (issue) => {
         console.log("AUFGABE: Rückgabe-Prozess starten für", issue);
-        alert(
-          "Demo: Hier würde der Rückgabe-Dialog mit Unterschriften erscheinen und anschließend ein Rückgabe-PDF in OneDrive abgelegt werden."
-        );
+        alert("Demo: Hier käme die Rückgabe mit Unterschriften & PDF-Erzeugung.");
       };
 
       return (
@@ -1045,16 +1183,42 @@
     }
 
     // -----------------------------------------------------------
-    // Haupt-App
+    // Haupt-App – lädt Daten aus OneDrive
     // -----------------------------------------------------------
     function App() {
       const [activeTab, setActiveTab] = useState("dashboard");
+      const [employees, setEmployees] = useState([]);
+      const [keys, setKeys] = useState([]);
+      const [issues, setIssues] = useState([]);
+      const [user, setUser] = useState(null);
+      const [loading, setLoading] = useState(true);
+      const [error, setError] = useState(null);
 
-      // TODO: Hier später Azure AD Login mit MSAL integrieren
-      const fakeUser = {
-        name: "Max Mustermann",
-        email: "max.mustermann@firma.de",
-      };
+      useEffect(() => {
+        fetchOneDriveData()
+          .then((data) => {
+            setEmployees(data.employees);
+            setKeys(data.keys);
+            setIssues(data.issues);
+            setUser(data.account);
+          })
+          .catch((err) => {
+            console.error(err);
+            setError("Fehler beim Laden der Daten aus OneDrive / Graph.");
+          })
+          .finally(() => setLoading(false));
+      }, []);
+
+      const displayName = user?.name || "Benutzer";
+      const mail = user?.username || user?.email || "";
+
+      if (loading) {
+        return <div className="card">Daten werden aus OneDrive geladen…</div>;
+      }
+
+      if (error) {
+        return <div className="card">⚠ {error}</div>;
+      }
 
       return (
         <>
@@ -1064,9 +1228,9 @@
               <span className="badge">Intern</span>
             </div>
             <div className="user-info">
-              <strong>{fakeUser.name}</strong>
-              <span>{fakeUser.email}</span>
-              <span>Login später über Microsoft / Azure AD</span>
+              <strong>{displayName}</strong>
+              <span>{mail}</span>
+              <span>Angemeldet über Microsoft / Azure AD</span>
             </div>
           </header>
 
@@ -1097,9 +1261,9 @@
             </div>
           </div>
 
-          {activeTab === "dashboard" && <Dashboard />}
-          {activeTab === "issue" && <IssueForm />}
-          {activeTab === "return" && <ReturnForm />}
+          {activeTab === "dashboard" && <Dashboard issues={issues} />}
+          {activeTab === "issue" && <IssueForm employees={employees} keys={keys} />}
+          {activeTab === "return" && <ReturnForm issues={issues} />}
         </>
       );
     }

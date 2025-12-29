@@ -445,21 +445,21 @@
     // OneDrive / Graph: Daten aus Personal.txt + Excel laden
     // -----------------------------------------------------------
 
-    const msalConfig = {
+const msalConfig = {
   auth: {
     clientId: "efc76603-8876-48b3-a942-83f27694e4e6",
-    authority: "https://login.microsoftonline.com/f54f53bb-d0ff-4b78-bcf4-4aaee8b24428",
-    redirectUri: "https://thiemann423.github.io/Schl-ssausgabe/",
+    authority: "https://login.microsoftonline.com/f54f53bb-d0ff-4b78-bcf4-4aaee8b24428/v2.0",
+    redirectUri: window.location.origin + window.location.pathname,
+  },
+  cache: {
+    cacheLocation: "sessionStorage",
+    storeAuthStateInCookie: false,
   },
 };
+const loginRequest = {
+  scopes: ["User.Read", "Files.Read"],
+};
 
-    const loginRequest = {
-      scopes: [
-        "User.Read",
-        "Files.Read",
-        "Files.Read.All",
-      ],
-    };
 
     const msalInstance = new msal.PublicClientApplication(msalConfig);
 
@@ -1184,28 +1184,38 @@
     // -----------------------------------------------------------
     // Haupt-App – lädt Daten aus OneDrive
     // -----------------------------------------------------------
-    function App() {
-      const [activeTab, setActiveTab] = useState("dashboard");
-      const [employees, setEmployees] = useState([]);
-      const [keys, setKeys] = useState([]);
-      const [issues, setIssues] = useState([]);
-      const [user, setUser] = useState(null);
-      const [loading, setLoading] = useState(true);
-      const [error, setError] = useState(null);
+function App() {
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [employees, setEmployees] = useState([]);
+  const [keys, setKeys] = useState([]);
+  const [issues, setIssues] = useState([]);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-      useEffect(() => {
-        fetchOneDriveData()
-          .then((data) => {
-            setEmployees(data.employees);
-            setKeys(data.keys);
-            setIssues(data.issues);
-            setUser(data.account);
-          })
-          .catch((err) => {
-            console.error(err);
-            setError("Fehler beim Laden der Daten aus OneDrive / Graph.");
-          })
-          .finally(() => setLoading(false));
+  useEffect(() => {
+    fetchOneDriveData()
+      .then((data) => {
+        setEmployees(data.employees);
+        setKeys(data.keys);
+        setIssues(data.issues);
+        setUser(data.account);
+      })
+      .catch((err) => {
+        console.error(err);
+        setError("Fehler: " + (err?.message || String(err)));
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return <div className="card">Daten werden aus OneDrive geladen…</div>;
+  }
+
+  if (error) {
+    return <div className="card">⚠ {error}</div>;
+  }
+
       }, []);
 
       const displayName = user?.name || "Benutzer";

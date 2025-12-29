@@ -437,6 +437,8 @@
 </head>
 <body>
   <div id="root" class="app-root"></div>
+  
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
@@ -457,8 +459,9 @@ const msalConfig = {
 };
 
 const loginRequest = {
-  scopes: ["User.Read", "Files.Read"],
+  scopes: ["User.Read", "Files.ReadWrite"],
 };
+
 
 const msalInstance = new msal.PublicClientApplication(msalConfig);
 const msalReady = msalInstance.initialize();
@@ -497,17 +500,25 @@ const msalReady = msalInstance.initialize();
 
   const accessToken = tokenResponse.accessToken;
 
-  const graphClient = {
+ const graphClient = {
     async get(url, responseType = "json") {
       const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
         headers: { Authorization: "Bearer " + accessToken },
       });
+      if (!res.ok) throw new Error(await res.text());
+      return responseType === "arraybuffer" ? res.arrayBuffer() : res.json();
+    },
 
-      if (!res.ok) {
-        throw new Error("Graph-Fehler " + res.status + ": " + (await res.text()));
-      }
-
-      if (responseType === "text") return res.text();
+    async put(url, body, contentType) {
+      const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
+        method: "PUT",
+        headers: {
+          Authorization: "Bearer " + accessToken,
+          "Content-Type": contentType,
+        },
+        body,
+      });
+      if (!res.ok) throw new Error(await res.text());
       return res.json();
     },
   };
@@ -960,195 +971,300 @@ async function loadExcelIssues(graphClient) {
         </div>
       );
     }
+function isoDate() {
+  return new Date().toISOString().slice(0, 10);
+}
 
-    // -----------------------------------------------------------
-    // Formular: Schlüssel ausgeben – nutzt employees & keys
-    // -----------------------------------------------------------
-    function IssueForm({ employees, keys }) {
-      const [employeeSearch, setEmployeeSearch] = useState("");
-      const [selectedEmployee, setSelectedEmployee] = useState(null);
-      const [selectedKeyId, setSelectedKeyId] = useState("");
-      const [comment, setComment] = useState("");
-      const [issuedBySignature, setIssuedBySignature] = useState(null);
-      const [receivedBySignature, setReceivedBySignature] = useState(null);
+async function generateKeyProtocolPdfBlob({
+  type,              // "ISSUE" | "RETURN"
+  employee,
+  key,
+  issue,             // bei RETURN: Datensatz aus Tabelle
+  comment,
+  issuedSig,
+  receivedSig,
+}) {
+  if (!window.jspdf?.jsPDF) {
+    throw new Error("jsPDF ist nicht geladen. Script-Tag für jsPDF einbinden.");
+  }
 
-      const filteredEmployees = employees.filter((e) => {
-        const term = employeeSearch.toLowerCase();
-        if (!term) return true;
-        return (
-          (e.fullName || "").toLowerCase().includes(term) ||
-          (e.personnelNumber || "").toLowerCase().includes(term)
-        );
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
+
+  const today = isoDate();
+
+  // Titel
+  doc.setFontSize(16);
+  doc.text(type === "RETURN" ? "Schlüssel-Rückgabe Protokoll" : "Schlüssel-Ausgabe Protokoll", 15, 18);
+
+  doc.setFontSize(11);
+  doc.text(`Datum: ${today}`, 15, 28);
+
+  // Mitarbeiter-Daten (je nach Typ)
+  const empName = employee?.fullName || issue?.employeeName || "";
+  const empPn   = employee?.personnelNumber || issue?.personnelNumber || "";
+  const empDept = employee?.department || issue?.department || "";
+
+  // Schlüssel-Daten (je nach Typ)
+  const sys  = key?.system || issue?.system || "";
+  const num  = key?.number || "";
+  const desc = key?.description || "";
+
+  // Block: Mitarbeiter
+  doc.setFontSize(12);
+  doc.text("Mitarbeiter", 15, 40);
+  doc.setFontSize(11);
+  doc.text(`Name: ${empName}`, 15, 48);
+  doc.text(`Personalnr.: ${empPn}`, 15, 55);
+  doc.text(`Abteilung: ${empDept}`, 15, 62);
+
+  // Block: Schlüssel
+  doc.setFontSize(12);
+  doc.text("Schlüssel", 15, 75);
+  doc.setFontSize(11);
+  doc.text(`System: ${sys}`, 15, 83);
+  if (num) doc.text(`Nummer: ${num}`, 15, 90);
+  if (desc) doc.text(`Beschreibung: ${desc}`, 15, 97);
+
+  // Block: Bemerkungen / weitere Schlüssel
+  doc.setFontSize(12);
+  doc.text(type === "RETURN" ? "Hinweise" : "Bemerkungen", 15, 112);
+  doc.setFontSize(11);
+
+  const text = (comment || issue?.otherKeys || "").trim() || "—";
+  const lines = doc.splitTextToSize(text, 180);
+  doc.text(lines, 15, 120);
+
+  // Signaturen nur bei Ausgabe (weil ReturnForm noch keine SignaturePads hat)
+  if (type === "ISSUE") {
+    doc.setFontSize(12);
+    doc.text("Unterschriften", 15, 160);
+
+    doc.setFontSize(11);
+    doc.text("Ausgehändigt durch", 15, 170);
+    doc.rect(15, 173, 80, 30);
+
+    doc.text("Empfangen durch", 115, 170);
+    doc.rect(115, 173, 80, 30);
+
+    if (issuedSig) doc.addImage(issuedSig, "PNG", 16, 174, 78, 28);
+    if (receivedSig) doc.addImage(receivedSig, "PNG", 116, 174, 78, 28);
+  }
+
+  return doc.output("blob");
+}
+
+async function uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob }) {
+  await graphClient.put(
+    `/me/drive/root:/${encodeURIComponent(folder)}/${encodeURIComponent(fileName)}:/content`,
+    pdfBlob,
+    "application/pdf"
+  );
+}
+
+// -----------------------------------------------------------
+// Formular: Schlüssel ausgeben – nutzt employees & keys
+// -----------------------------------------------------------
+function IssueForm({ employees, keys }) {
+  const [employeeSearch, setEmployeeSearch] = useState("");
+  const [selectedEmployee, setSelectedEmployee] = useState(null);
+  const [selectedKeyId, setSelectedKeyId] = useState("");
+  const [comment, setComment] = useState("");
+  const [issuedBySignature, setIssuedBySignature] = useState(null);
+  const [receivedBySignature, setReceivedBySignature] = useState(null);
+
+  const filteredEmployees = employees.filter((e) => {
+    const term = employeeSearch.toLowerCase();
+    if (!term) return true;
+    return (
+      (e.fullName || "").toLowerCase().includes(term) ||
+      (e.personnelNumber || "").toLowerCase().includes(term)
+    );
+  });
+
+  const handleSelectEmployee = (id) => {
+    const emp = employees.find((e) => e.employeeId === id);
+    setSelectedEmployee(emp || null);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!selectedEmployee || !selectedKeyId || !issuedBySignature || !receivedBySignature) {
+      alert("Bitte Mitarbeiter, Schlüssel und beide Unterschriften erfassen.");
+      return;
+    }
+
+    const key = keys.find((k) => k.keyId === selectedKeyId);
+
+    const payload = {
+      employeeId: selectedEmployee.employeeId,
+      personnelNumber: selectedEmployee.personnelNumber,
+      employeeName: selectedEmployee.fullName,
+      keyId: selectedKeyId,
+      keySystem: key?.system,
+      keyNumber: key?.number,
+      keyDescription: key?.description,
+      comment,
+      issuedBySignatureBase64: issuedBySignature,
+      receivedBySignatureBase64: receivedBySignature,
+    };
+
+    try {
+      // 1) PDF erzeugen
+      const pdfBlob = await generateKeyProtocolPdfBlob({
+        type: "ISSUE",
+        employee: selectedEmployee,
+        key,
+        comment,
+        issuedSig: issuedBySignature,
+        receivedSig: receivedBySignature,
       });
 
-      const handleSelectEmployee = (id) => {
-        const emp = employees.find((e) => e.employeeId === id);
-        setSelectedEmployee(emp || null);
-      };
+      // 2) OneDrive Upload
+      const { graphClient } = await getGraphClient();
 
-      const handleSubmit = (e) => {
-        e.preventDefault();
-        if (!selectedEmployee || !selectedKeyId || !issuedBySignature || !receivedBySignature) {
-          alert("Bitte Mitarbeiter, Schlüssel und beide Unterschriften erfassen.");
-          return;
-        }
+      const folder = "SchluesselAusgabe"; // <- exakt wie in OneDrive
+      const fileName = `Schluessel-Ausgabe_${selectedEmployee.personnelNumber}_${isoDate()}.pdf`;
 
-        const key = keys.find((k) => k.keyId === selectedKeyId);
+      await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
-        const payload = {
-          employeeId: selectedEmployee.employeeId,
-          personnelNumber: selectedEmployee.personnelNumber,
-          employeeName: selectedEmployee.fullName,
-          keyId: selectedKeyId,
-          keySystem: key?.system,
-          keyNumber: key?.number,
-          keyDescription: key?.description,
-          comment,
-          issuedBySignatureBase64: issuedBySignature,
-          receivedBySignatureBase64: receivedBySignature,
-        };
+      console.log("ISSUE Payload:", payload);
+      alert("✅ Ausgabe-PDF wurde in OneDrive gespeichert.");
 
-        console.log("AUFGABE: an Backend senden /api/key-issues (ISSUE)", payload);
-        alert("Demo: Schlüssel-Ausgabe wurde lokal protokolliert (siehe Browser-Konsole).");
-      };
+      // optional: Reset nach Erfolg
+      setSelectedKeyId("");
+      setComment("");
+      setIssuedBySignature(null);
+      setReceivedBySignature(null);
+    } catch (err) {
+      console.error(err);
+      alert("❌ Ausgabe fehlgeschlagen: " + (err?.message || String(err)));
+    }
+  };
 
-      return (
-        <div className="card">
-          <div className="section-title">Schlüssel ausgeben</div>
-          <div className="section-sub">
-            Erfasse die Ausgabe eines Schlüssels inklusive Unterschriften und Übergabeprotokoll.
+  return (
+    <div className="card">
+      <div className="section-title">Schlüssel ausgeben</div>
+      <div className="section-sub">
+        Erfasse die Ausgabe eines Schlüssels inklusive Unterschriften und Übergabeprotokoll.
+      </div>
+
+      <form onSubmit={handleSubmit}>
+        {/* Formular-Felder (oben) */}
+        <div>
+          <div className="form-group">
+            <label className="form-label">Mitarbeiter suchen</label>
+            <input
+              className="input"
+              placeholder="Name oder Personalnummer eingeben…"
+              value={employeeSearch}
+              onChange={(e) => setEmployeeSearch(e.target.value)}
+            />
+            <div className="form-help">
+              Stammdaten kommen aus Personal.txt + Excel (später HR-App).
+            </div>
           </div>
 
-     <form onSubmit={handleSubmit}>
+          <div className="form-group">
+            <label className="form-label">Mitarbeiter auswählen</label>
+            <select
+              className="select"
+              onChange={(e) => handleSelectEmployee(e.target.value)}
+              value={selectedEmployee?.employeeId || ""}
+            >
+              <option value="">Bitte auswählen…</option>
+              {filteredEmployees.map((e) => (
+                <option key={e.employeeId} value={e.employeeId}>
+                  {e.fullName} ({e.personnelNumber})
+                </option>
+              ))}
+            </select>
+          </div>
 
-  {/* Formular-Felder (oben) */}
-  <div>
-    <div className="form-group">
-      <label className="form-label">Mitarbeiter suchen</label>
-      <input
-        className="input"
-        placeholder="Name oder Personalnummer eingeben…"
-        value={employeeSearch}
-        onChange={(e) => setEmployeeSearch(e.target.value)}
-      />
-      <div className="form-help">
-        Stammdaten kommen aus Personal.txt + Excel (später HR-App).
-      </div>
-    </div>
+          {selectedEmployee && (
+            <>
+              <div className="form-group">
+                <label className="form-label">Abteilung</label>
+                <input className="input" value={selectedEmployee.department || ""} readOnly />
+              </div>
 
-    <div className="form-group">
-      <label className="form-label">Mitarbeiter auswählen</label>
-      <select
-        className="select"
-        onChange={(e) => handleSelectEmployee(e.target.value)}
-        value={selectedEmployee?.employeeId || ""}
-      >
-        <option value="">Bitte auswählen…</option>
-        {filteredEmployees.map((e) => (
-          <option key={e.employeeId} value={e.employeeId}>
-            {e.fullName} ({e.personnelNumber})
-          </option>
-        ))}
-      </select>
-    </div>
+              <div className="form-group">
+                <label className="form-label">Personalnummer</label>
+                <input className="input" value={selectedEmployee.personnelNumber || ""} readOnly />
+              </div>
 
-    {selectedEmployee && (
-      <>
-        <div className="form-group">
-          <label className="form-label">Abteilung</label>
-          <input
-            className="input"
-            value={selectedEmployee.department || ""}
-            readOnly
-          />
+              <div className="form-group">
+                <label className="form-label">Name</label>
+                <input className="input" value={selectedEmployee.fullName || ""} readOnly />
+              </div>
+            </>
+          )}
+
+          <div className="form-group">
+            <label className="form-label">Schlüssel auswählen</label>
+            <select
+              className="select"
+              value={selectedKeyId}
+              onChange={(e) => setSelectedKeyId(e.target.value)}
+            >
+              <option value="">Bitte auswählen…</option>
+              {keys.map((k) => (
+                <option key={k.keyId} value={k.keyId}>
+                  {k.system} {k.number ? "– " + k.number : ""} ({k.description})
+                </option>
+              ))}
+            </select>
+
+            <div className="form-help">
+              Pro physischem Schlüssel wird ein Datensatz geführt (Schließsystem + Nummer + Beschreibung).
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Weitere Schlüssel / Bemerkungen</label>
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Optionale Zusatzinformationen zur Ausgabe…"
+            />
+          </div>
         </div>
 
-        <div className="form-group">
-          <label className="form-label">Personalnummer</label>
-          <input
-            className="input"
-            value={selectedEmployee.personnelNumber || ""}
-            readOnly
-          />
+        {/* Unterschriften */}
+        <div style={{ marginTop: 24 }}>
+          <div className="section-title">Unterschriften</div>
+          <div className="section-sub">
+            Beide Unterschriften werden im PDF-Protokoll gespeichert (PC & iPad geeignet).
+          </div>
+
+          <div className="signatures" style={{ marginTop: 12 }}>
+            <SignaturePad
+              label="Ausgehändigt durch"
+              role="Mitarbeiter, der den Schlüssel übergibt"
+              value={issuedBySignature}
+              onChange={setIssuedBySignature}
+            />
+            <SignaturePad
+              label="Empfangen durch"
+              role="Mitarbeiter, der den Schlüssel erhält"
+              value={receivedBySignature}
+              onChange={setReceivedBySignature}
+            />
+          </div>
         </div>
 
-        <div className="form-group">
-          <label className="form-label">Name</label>
-          <input
-            className="input"
-            value={selectedEmployee.fullName || ""}
-            readOnly
-          />
+        <div className="footer-actions">
+          <button type="button" className="btn">Abbrechen</button>
+          <button type="submit" className="btn btn-primary">
+            Schlüssel-Ausgabe speichern &amp; PDF erzeugen
+          </button>
         </div>
-      </>
-    )}
-
-    <div className="form-group">
-      <label className="form-label">Schlüssel auswählen</label>
-      <select
-        className="select"
-        value={selectedKeyId}
-        onChange={(e) => setSelectedKeyId(e.target.value)}
-      >
-        <option value="">Bitte auswählen…</option>
-        {keys.map((k) => (
-          <option key={k.keyId} value={k.keyId}>
-            {k.system} {k.number ? "– " + k.number : ""} ({k.description})
-          </option>
-        ))}
-      </select>
-
-      <div className="form-help">
-        Pro physischem Schlüssel wird ein Datensatz geführt (Schließsystem + Nummer + Beschreibung).
-      </div>
+      </form>
     </div>
+  );
+}
 
-    <div className="form-group">
-      <label className="form-label">Weitere Schlüssel / Bemerkungen</label>
-      <textarea
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        placeholder="Optionale Zusatzinformationen zur Ausgabe…"
-      />
-    </div>
-  </div>
-
-  {/* ✅ Unterschriften (ganz unten) */}
-  <div style={{ marginTop: 24 }}>
-    <div className="section-title">Unterschriften</div>
-    <div className="section-sub">
-      Beide Unterschriften werden im PDF-Protokoll gespeichert (PC & iPad geeignet).
-    </div>
-
-    <div className="signatures" style={{ marginTop: 12 }}>
-      <SignaturePad
-        label="Ausgehändigt durch"
-        role="Mitarbeiter, der den Schlüssel übergibt"
-        value={issuedBySignature}
-        onChange={setIssuedBySignature}
-      />
-      <SignaturePad
-        label="Empfangen durch"
-        role="Mitarbeiter, der den Schlüssel erhält"
-        value={receivedBySignature}
-        onChange={setReceivedBySignature}
-      />
-    </div>
-  </div>
-
-  {/* Footer Buttons */}
-  <div className="footer-actions">
-    <button type="button" className="btn">Abbrechen</button>
-    <button type="submit" className="btn btn-primary">
-      Schlüssel-Ausgabe speichern &amp; PDF erzeugen
-    </button>
-  </div>
-
-</form>
-
-        </div>
-      );
-    }
 
     // -----------------------------------------------------------
     // Formular: Rückgabe (nutzt issues-Prop)
@@ -1167,73 +1283,102 @@ async function loadExcelIssues(graphClient) {
         );
       });
 
-      const handleReturn = (issue) => {
-        console.log("AUFGABE: Rückgabe-Prozess starten für", issue);
-        alert("Demo: Hier käme die Rückgabe mit Unterschriften & PDF-Erzeugung.");
-      };
+ function ReturnForm({ issues }) {
+  const [search, setSearch] = useState("");
 
-      return (
-        <div className="card">
-          <div className="section-title">Rückgabe erfassen</div>
-          <div className="section-sub">
-            Mitarbeiter verlassen das Unternehmen oder geben Schlüssel zurück – hier erfasst du die Rückgabe.
-          </div>
+  const outstanding = issues.filter((i) => !i.hasReturn);
 
-          <div className="filters-row">
-            <input
-              className="input"
-              placeholder="Mitarbeiter oder Personalnummer suchen…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-            <span className="chip">{filteredIssues.length} offene Ausgaben</span>
-          </div>
+  const filteredIssues = outstanding.filter((i) => {
+    const term = search.toLowerCase();
+    if (!term) return true;
+    return (
+      (i.employeeName || "").toLowerCase().includes(term) ||
+      (i.personnelNumber || "").toLowerCase().includes(term)
+    );
+  });
 
-          <div className="table-wrapper">
-            {filteredIssues.length === 0 ? (
-              <div className="empty-state">
-                Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.
-              </div>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Mitarbeiter</th>
-                    <th>Personalnr.</th>
-                    <th>Abteilung</th>
-                    <th>Schlüssel / System</th>
-                    <th>Weitere Schlüssel</th>
-                    <th>Ausgabedatum</th>
-                    <th>Aktion</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredIssues.map((i) => (
-                    <tr key={i.id}>
-                      <td>{i.employeeName}</td>
-                      <td>{i.personnelNumber || "–"}</td>
-                      <td>{(i.department || "").trim()}</td>
-                      <td>{i.system || "n/a"}</td>
-                      <td>{i.otherKeys || "–"}</td>
-                      <td>{i.issueDate}</td>
-                      <td>
-                        <button
-                          type="button"
-                          className="btn"
-                          onClick={() => handleReturn(i)}
-                        >
-                          Rückgabe erfassen
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      );
+  const handleReturn = async (issue) => {
+    try {
+      // 1) Rückgabe-PDF erzeugen
+      const pdfBlob = await generateKeyProtocolPdfBlob({
+        type: "RETURN",
+        issue,
+        comment: issue?.otherKeys || "",
+      });
+
+      // 2) Upload nach OneDrive
+      const { graphClient } = await getGraphClient();
+
+      const folder = "SchluesselAusgabe";
+      const pn = issue?.personnelNumber || "unknown";
+      const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
+
+      await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
+
+      alert("✅ Rückgabe-PDF wurde in OneDrive gespeichert.");
+    } catch (err) {
+      console.error(err);
+      alert("❌ Rückgabe fehlgeschlagen: " + (err?.message || String(err)));
     }
+  };
+
+  return (
+    <div className="card">
+      <div className="section-title">Rückgabe erfassen</div>
+      <div className="section-sub">
+        Mitarbeiter verlassen das Unternehmen oder geben Schlüssel zurück – hier erfasst du die Rückgabe.
+      </div>
+
+      <div className="filters-row">
+        <input
+          className="input"
+          placeholder="Mitarbeiter oder Personalnummer suchen…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <span className="chip">{filteredIssues.length} offene Ausgaben</span>
+      </div>
+
+      <div className="table-wrapper">
+        {filteredIssues.length === 0 ? (
+          <div className="empty-state">Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Mitarbeiter</th>
+                <th>Personalnr.</th>
+                <th>Abteilung</th>
+                <th>Schlüssel / System</th>
+                <th>Weitere Schlüssel</th>
+                <th>Ausgabedatum</th>
+                <th>Aktion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredIssues.map((i) => (
+                <tr key={i.id}>
+                  <td>{i.employeeName}</td>
+                  <td>{i.personnelNumber || "–"}</td>
+                  <td>{(i.department || "").trim()}</td>
+                  <td>{i.system || "n/a"}</td>
+                  <td>{i.otherKeys || "–"}</td>
+                  <td>{i.issueDate}</td>
+                  <td>
+                    <button type="button" className="btn" onClick={() => handleReturn(i)}>
+                      Rückgabe erfassen
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
     // -----------------------------------------------------------
     // Haupt-App – lädt Daten aus OneDrive

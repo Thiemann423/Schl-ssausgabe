@@ -1144,7 +1144,8 @@ async function uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob }) {
 // -----------------------------------------------------------
 // Formular: Schlüssel ausgeben – nutzt employees & keys
 // -----------------------------------------------------------
-function IssueForm({ employees, keys }) {
+function IssueForm({ employees, keys, onIssueCreated }) {
+
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
   const [selectedKeyId, setSelectedKeyId] = useState("");

@@ -1098,6 +1098,9 @@ function IssueForm({ employees, keys }) {
   const [issuedBySignature, setIssuedBySignature] = useState(null);
   const [receivedBySignature, setReceivedBySignature] = useState(null);
 
+  // ✅ sorgt dafür, dass die SignaturePads nach Erfolg "neu" gerendert werden
+  const [sigReset, setSigReset] = useState(0);
+
   const filteredEmployees = employees.filter((e) => {
     const term = employeeSearch.toLowerCase();
     if (!term) return true;
@@ -1157,11 +1160,16 @@ function IssueForm({ employees, keys }) {
       console.log("ISSUE Payload:", payload);
       alert("✅ Ausgabe-PDF wurde in OneDrive gespeichert.");
 
-      // optional: Reset nach Erfolg
+      // ✅ kompletter Reset nach Erfolg (auch aus Sicherheitsgründen)
+      setEmployeeSearch("");
+      setSelectedEmployee(null);
       setSelectedKeyId("");
       setComment("");
       setIssuedBySignature(null);
       setReceivedBySignature(null);
+
+      // ✅ Canvas wirklich leeren (SignaturePad neu mounten)
+      setSigReset((x) => x + 1);
     } catch (err) {
       console.error(err);
       alert("❌ Ausgabe fehlgeschlagen: " + (err?.message || String(err)));
@@ -1265,12 +1273,14 @@ function IssueForm({ employees, keys }) {
 
           <div className="signatures" style={{ marginTop: 12 }}>
             <SignaturePad
+              key={"issued-" + sigReset}
               label="Ausgehändigt durch"
               role="Mitarbeiter, der den Schlüssel übergibt"
               value={issuedBySignature}
               onChange={setIssuedBySignature}
             />
             <SignaturePad
+              key={"received-" + sigReset}
               label="Empfangen durch"
               role="Mitarbeiter, der den Schlüssel erhält"
               value={receivedBySignature}
@@ -1280,7 +1290,23 @@ function IssueForm({ employees, keys }) {
         </div>
 
         <div className="footer-actions">
-          <button type="button" className="btn">Abbrechen</button>
+          <button
+            type="button"
+            className="btn"
+            onClick={() => {
+              // optional: Abbrechen = auch alles leeren
+              setEmployeeSearch("");
+              setSelectedEmployee(null);
+              setSelectedKeyId("");
+              setComment("");
+              setIssuedBySignature(null);
+              setReceivedBySignature(null);
+              setSigReset((x) => x + 1);
+            }}
+          >
+            Abbrechen
+          </button>
+
           <button type="submit" className="btn btn-primary">
             Schlüssel-Ausgabe speichern &amp; PDF erzeugen
           </button>

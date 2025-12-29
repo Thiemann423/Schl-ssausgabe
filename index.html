@@ -563,22 +563,21 @@ async function loadEmployeesFromPersonalTxt(graphClient) {
 
 
 async function loadExcelIssues(graphClient) {
-  // Excel-Datei im OneDrive finden (egal wo sie liegt)
-  const item = await findItemByName(
-    graphClient,
-    "Schluessel_Schliessplan_Verteilung_Mitarbeiter.xlsx"
-  );
+  // ✅ Excel-Datei per Drive-Suche finden (statt festen Pfad zu raten)
+  const item = await findItemByName(graphClient, "Schlüssel Schließplan Verteilung Mitarbeiter.xlsx");
 
-  // Workbook-Range über die Item-ID abfragen
+  const sheetName = "Tabelle1"; // laut deinem Screenshot / Datei
+
+  // usedRange aus der gefundenen Datei holen
   const rangeUrl =
-    `/me/drive/items/${item.id}/workbook/worksheets('Tabelle1')/usedRange(valuesOnly=true)`;
+    `/me/drive/items/${item.id}/workbook/worksheets('${encodeURIComponent(sheetName)}')/usedRange(valuesOnly=true)`;
 
   const json = await graphClient.get(rangeUrl, "json");
 
   const rows = json.values;
   if (!rows || rows.length === 0) return [];
 
-  const header = rows[0].map((h) => String(h).trim());
+  const header = rows[0].map((h) => String(h || "").trim());
   const dataRows = rows.slice(1);
 
   const indexOf = (name) => header.findIndex((h) => h === name);
@@ -610,6 +609,12 @@ async function loadExcelIssues(graphClient) {
     const dateVal = value(idxDatum);
     const rueckgabe = value(idxRueckgabe);
 
+    // Datum kann bei Graph manchmal als String/Serial kommen – wir lassen es erstmal so durch
+    const issueDate = dateVal || null;
+
+    const hasReturn = !!rueckgabe;
+    const returnInfo = rueckgabe || null;
+
     let personnelNumber = pnRaw;
     if (pnRaw && /^\d+\.0$/.test(pnRaw)) {
       personnelNumber = String(parseInt(pnRaw, 10));
@@ -622,14 +627,15 @@ async function loadExcelIssues(graphClient) {
       department,
       system,
       otherKeys,
-      issueDate: dateVal || null,
-      hasReturn: !!rueckgabe,
-      returnInfo: rueckgabe || null,
+      issueDate,
+      hasReturn,
+      returnInfo,
     });
   }
 
   return issues;
 }
+
 
 
 

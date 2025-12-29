@@ -1219,36 +1219,40 @@ function App() {
     },
   ];
 
-useEffect(() => {
-  let cancelled = false;
+  // ✅ Login + Daten laden: NUR per Klick (Popup sicher)
+  async function signInAndLoad() {
+    setLoading(true);
+    setError(null);
 
-  fetchOneDriveData()
-    .then((data) => {
-      if (cancelled) return;
+    try {
+      const data = await fetchOneDriveData();
       setEmployees(data.employees || []);
       setKeys(data.keys || []);
       setIssues(data.issues || []);
       setUser(data.account || null);
-      setError(null);
-    })
-    .catch((err) => {
+    } catch (err) {
       console.error(err);
-      if (cancelled) return;
       setError("Fehler: " + (err?.message || String(err)));
-    })
-    .finally(() => {
-      if (cancelled) return;
+    } finally {
       setLoading(false);
-    });
+    }
+  }
 
-  return () => {
-    cancelled = true;
-  };
-}, []);
-
+  // ✅ Beim Laden: nur prüfen, ob ein Account im Cache existiert.
+  // Falls ja → silent laden (ohne Popup). Falls nein → UI anzeigen + Button.
+  useEffect(() => {
+    const acc = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
+    if (acc) {
+      msalInstance.setActiveAccount(acc);
+      // Versuche Daten zu laden – falls Token nicht silent geht, zeigt fetchOneDriveData später Fehler
+      // (und du kannst dann per Button nochmal anmelden)
+      signInAndLoad();
+    } else {
+      setLoading(false);
+    }
+  }, []);
 
   // Datenquelle: OneDrive wenn vorhanden, sonst Fallback
-   // Datenquelle: OneDrive wenn vorhanden, sonst Fallback
   const employeesData = employees.length ? employees : FALLBACK_EMPLOYEES;
   const keysData = keys.length ? keys : FALLBACK_KEYS;
   const issuesData = issues.length ? issues : FALLBACK_ISSUES;
@@ -1269,6 +1273,25 @@ useEffect(() => {
           <span>Login über Microsoft / Azure AD</span>
         </div>
       </header>
+
+      {/* ✅ Wenn nicht eingeloggt: Button anzeigen */}
+      {!user && (
+        <div
+          className="card"
+          style={{
+            marginBottom: 14,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <div>Bitte anmelden, um OneDrive-Daten zu laden.</div>
+          <button className="btn btn-primary" type="button" onClick={signInAndLoad}>
+            Anmelden
+          </button>
+        </div>
+      )}
 
       {/* Status-Anzeige oben */}
       {loading && (
@@ -1318,6 +1341,7 @@ useEffect(() => {
     </>
   );
 }
+
 
 
 

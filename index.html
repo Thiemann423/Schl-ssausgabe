@@ -448,7 +448,7 @@
 const msalConfig = {
   auth: {
     clientId: "efc76603-8876-48b3-a942-83f27694e4e6",
-    authority: "https://login.microsoftonline.com/f54f53bb-d0ff-4b78-bcf4-4aaee8b24428/v2.0",
+    authority: "https://login.microsoftonline.com/f54f53bb-d0ff-4b78-bcf4-4aaee8b24428",
     redirectUri: window.location.origin + window.location.pathname,
   },
   cache: {
@@ -458,51 +458,65 @@ const msalConfig = {
 };
 
 
+
 const loginRequest = {
   scopes: ["User.Read", "Files.Read"],
 };
 
 
     const msalInstance = new msal.PublicClientApplication(msalConfig);
+    const msalReady = msalInstance.initialize();
 
-    async function getGraphClient() {
-      let account = msalInstance.getActiveAccount();
-      if (!account) {
-        const accounts = msalInstance.getAllAccounts();
-        if (accounts.length > 0) {
-          account = accounts[0];
-        }
-      }
+  async function getGraphClient() {
+  // ✅ WICHTIG: MSAL initialisieren lassen (sonst endpoint/CORS Stress möglich)
+  await msalReady;
 
-      if (!account) {
-        const loginResult = await msalInstance.loginPopup(loginRequest);
-        account = loginResult.account;
-      }
+  let account = msalInstance.getActiveAccount();
+  if (!account) {
+    const accounts = msalInstance.getAllAccounts();
+    if (accounts.length > 0) account = accounts[0];
+  }
 
-      msalInstance.setActiveAccount(account);
+  // ✅ Nur wenn wirklich kein Account vorhanden ist: Login per Popup
+  if (!account) {
+    const loginResult = await msalInstance.loginPopup(loginRequest);
+    account = loginResult.account;
+  }
 
-      const tokenResponse = await msalInstance.acquireTokenSilent({
-        ...loginRequest,
-        account,
+  msalInstance.setActiveAccount(account);
+
+  let tokenResponse;
+  try {
+    // ✅ Erst silent versuchen (nutzt Cache / vorhandene Session)
+    tokenResponse = await msalInstance.acquireTokenSilent({
+      ...loginRequest,
+      account,
+    });
+  } catch (e) {
+    // ✅ Wenn silent nicht geht (z.B. first time / expired / interaction required)
+    tokenResponse = await msalInstance.acquireTokenPopup(loginRequest);
+  }
+
+  const accessToken = tokenResponse.accessToken;
+
+  const graphClient = {
+    async get(url, responseType = "json") {
+      const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
+        headers: { Authorization: "Bearer " + accessToken },
       });
 
-      const accessToken = tokenResponse.accessToken;
+      if (!res.ok) {
+        throw new Error("Graph-Fehler " + res.status + ": " + (await res.text()));
+      }
 
-      const graphClient = {
-        async get(url, responseType = "json") {
-          const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
-            headers: { Authorization: "Bearer " + accessToken },
-          });
-          if (!res.ok) {
-            throw new Error("Graph-Fehler " + res.status + ": " + (await res.text()));
-          }
-          if (responseType === "text") return res.text();
-          return res.json();
-        },
-      };
+      if (responseType === "text") return res.text();
+      return res.json();
+    },
+  };
 
-      return { graphClient, account };
-    }
+  return { graphClient, account };
+}
+
 
     async function loadEmployeesFromPersonalTxt(graphClient) {
       const path = "/me/drive/root:/SchluesselAusgabe/Personal.txt:/content";
@@ -1222,23 +1236,24 @@ function App() {
   ];
 
   // ✅ Login + Daten laden: NUR per Klick (Popup sicher)
-  async function signInAndLoad() {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const data = await fetchOneDriveData();
-      setEmployees(data.employees || []);
-      setKeys(data.keys || []);
-      setIssues(data.issues || []);
-      setUser(data.account || null);
-    } catch (err) {
-      console.error(err);
-      setError("Fehler: " + (err?.message || String(err)));
-    } finally {
-      setLoading(false);
-    }
+async function signInAndLoad() {
+  await msalReady;            // <-- wichtig
+  setLoading(true);
+  setError(null);
+  try {
+    const data = await fetchOneDriveData();
+    setEmployees(data.employees || []);
+    setKeys(data.keys || []);
+    setIssues(data.issues || []);
+    setUser(data.account || null);
+  } catch (err) {
+    console.error(err);
+    setError("Fehler: " + (err?.message || String(err)));
+  } finally {
+    setLoading(false);
   }
+}
+
 
   // ✅ Beim Laden: nur prüfen, ob ein Account im Cache existiert.
   // Falls ja → silent laden (ohne Popup). Falls nein → UI anzeigen + Button.

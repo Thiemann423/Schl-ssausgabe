@@ -1190,92 +1190,123 @@ function App() {
   const [keys, setKeys] = useState([]);
   const [issues, setIssues] = useState([]);
   const [user, setUser] = useState(null);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Fallback-Daten (damit Ausgabe/Rückgabe/Unterschrift immer sichtbar bleiben)
+  const FALLBACK_EMPLOYEES = [
+    { employeeId: "e1", personnelNumber: "0001", fullName: "Max Mustermann", department: "Verwaltung" },
+    { employeeId: "e2", personnelNumber: "0002", fullName: "Erika Musterfrau", department: "Produktion" },
+  ];
+
+  const FALLBACK_KEYS = [
+    { keyId: "k1", system: "HC 6", number: "Nr. 3", description: "HC 6, Nr. 3" },
+    { keyId: "k2", system: "HC 6", number: "Nr. 4", description: "HC 6, Nr. 4" },
+  ];
+
+  const FALLBACK_ISSUES = [
+    {
+      id: 1,
+      employeeName: "Max Mustermann",
+      personnelNumber: "0001",
+      department: "Verwaltung",
+      system: "HC 6, Nr. 3",
+      otherKeys: "Hoftor",
+      issueDate: "2025-12-01",
+      hasReturn: false,
+      returnInfo: null,
+    },
+  ];
 
   useEffect(() => {
     fetchOneDriveData()
       .then((data) => {
-        setEmployees(data.employees);
-        setKeys(data.keys);
-        setIssues(data.issues);
-        setUser(data.account);
+        setEmployees(data.employees || []);
+        setKeys(data.keys || []);
+        setIssues(data.issues || []);
+        setUser(data.account || null);
+        setError(null);
       })
       .catch((err) => {
         console.error(err);
         setError("Fehler: " + (err?.message || String(err)));
+        // Wichtig: nicht blockieren – UI bleibt trotzdem nutzbar
       })
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) {
-    return <div className="card">Daten werden aus OneDrive geladen…</div>;
-  }
+  // Datenquelle: OneDrive wenn vorhanden, sonst Fallback
+  const employeesData = employees.length ? employees : FALLBACK_EMPLOYEES;
+  const keysData = keys.length ? keys : FALLBACK_KEYS;
+  const issuesData = issues.length ? issues : FALLBACK_ISSUES;
 
-  if (error) {
-    return <div className="card">⚠ {error}</div>;
-  }
+  const displayName = user?.name || "Benutzer";
+  const mail = user?.username || "";
 
-      }, []);
+  return (
+    <>
+      <header>
+        <div className="app-title">
+          🔑 Schlüsselverwaltung
+          <span className="badge">Intern</span>
+        </div>
+        <div className="user-info">
+          <strong>{displayName}</strong>
+          <span>{mail}</span>
+          <span>Login über Microsoft / Azure AD</span>
+        </div>
+      </header>
 
-      const displayName = user?.name || "Benutzer";
-      const mail = user?.username || user?.email || "";
+      {/* Status-Anzeige oben */}
+      {loading && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          Daten werden geladen…
+        </div>
+      )}
+      {error && (
+        <div className="card" style={{ marginBottom: 14 }}>
+          ⚠ {error}
+        </div>
+      )}
 
-      if (loading) {
-        return <div className="card">Daten werden aus OneDrive geladen…</div>;
-      }
+      <div className="card" style={{ marginBottom: 14 }}>
+        <div className="tabs">
+          <button
+            className={"tab-btn " + (activeTab === "dashboard" ? "active" : "")}
+            onClick={() => setActiveTab("dashboard")}
+            type="button"
+          >
+            <span className="btn-icon">📊</span>
+            Dashboard
+          </button>
+          <button
+            className={"tab-btn " + (activeTab === "issue" ? "active" : "")}
+            onClick={() => setActiveTab("issue")}
+            type="button"
+          >
+            <span className="btn-icon">➕</span>
+            Ausgabe
+            <span className="pill">mit Unterschrift</span>
+          </button>
+          <button
+            className={"tab-btn " + (activeTab === "return" ? "active" : "")}
+            onClick={() => setActiveTab("return")}
+            type="button"
+          >
+            <span className="btn-icon">↩</span>
+            Rückgabe
+          </button>
+        </div>
+      </div>
 
-      if (error) {
-        return <div className="card">⚠ {error}</div>;
-      }
+      {activeTab === "dashboard" && <Dashboard issues={issuesData} />}
+      {activeTab === "issue" && <IssueForm employees={employeesData} keys={keysData} />}
+      {activeTab === "return" && <ReturnForm issues={issuesData} />}
+    </>
+  );
+}
 
-      return (
-        <>
-          <header>
-            <div className="app-title">
-              🔑 Schlüsselverwaltung
-              <span className="badge">Intern</span>
-            </div>
-            <div className="user-info">
-              <strong>{displayName}</strong>
-              <span>{mail}</span>
-              <span>Angemeldet über Microsoft / Azure AD</span>
-            </div>
-          </header>
-
-          <div className="card" style={{ marginBottom: 14 }}>
-            <div className="tabs">
-              <button
-                className={"tab-btn " + (activeTab === "dashboard" ? "active" : "")}
-                onClick={() => setActiveTab("dashboard")}
-              >
-                <span className="btn-icon">📊</span>
-                Dashboard
-              </button>
-              <button
-                className={"tab-btn " + (activeTab === "issue" ? "active" : "")}
-                onClick={() => setActiveTab("issue")}
-              >
-                <span className="btn-icon">➕</span>
-                Ausgabe
-                <span className="pill">mit Unterschrift</span>
-              </button>
-              <button
-                className={"tab-btn " + (activeTab === "return" ? "active" : "")}
-                onClick={() => setActiveTab("return")}
-              >
-                <span className="btn-icon">↩</span>
-                Rückgabe
-              </button>
-            </div>
-          </div>
-
-          {activeTab === "dashboard" && <Dashboard issues={issues} />}
-          {activeTab === "issue" && <IssueForm employees={employees} keys={keys} />}
-          {activeTab === "return" && <ReturnForm issues={issues} />}
-        </>
-      );
-    }
 
     const root = ReactDOM.createRoot(document.getElementById("root"));
     root.render(<App />);

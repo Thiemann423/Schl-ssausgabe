@@ -1019,125 +1019,133 @@ async function loadExcelIssues(graphClient) {
             Erfasse die Ausgabe eines Schlüssels inklusive Unterschriften und Übergabeprotokoll.
           </div>
 
-          <form onSubmit={handleSubmit}>
-            <div className="layout-2col">
-              <div>
-                <div className="form-group">
-                  <label className="form-label">Mitarbeiter suchen</label>
-                  <input
-                    className="input"
-                    placeholder="Name oder Personalnummer eingeben…"
-                    value={employeeSearch}
-                    onChange={(e) => setEmployeeSearch(e.target.value)}
-                  />
-                  <div className="form-help">
-                    Stammdaten kommen aus Personal.txt + Excel (später HR-App).
-                  </div>
-                </div>
+     <form onSubmit={handleSubmit}>
 
-                <div className="form-group">
-                  <label className="form-label">Mitarbeiter auswählen</label>
-                  <select
-                    className="select"
-                    onChange={(e) => handleSelectEmployee(e.target.value)}
-                    value={selectedEmployee?.employeeId || ""}
-                  >
-                    <option value="">Bitte auswählen…</option>
-                    {filteredEmployees.map((e) => (
-                      <option key={e.employeeId} value={e.employeeId}>
-                        {e.fullName} ({e.personnelNumber})
-                      </option>
-                    ))}
-                  </select>
-                </div>
+  {/* Formular-Felder (oben) */}
+  <div>
+    <div className="form-group">
+      <label className="form-label">Mitarbeiter suchen</label>
+      <input
+        className="input"
+        placeholder="Name oder Personalnummer eingeben…"
+        value={employeeSearch}
+        onChange={(e) => setEmployeeSearch(e.target.value)}
+      />
+      <div className="form-help">
+        Stammdaten kommen aus Personal.txt + Excel (später HR-App).
+      </div>
+    </div>
 
-                {selectedEmployee && (
-                  <>
-                    <div className="form-group">
-                      <label className="form-label">Abteilung</label>
-                      <input
-                        className="input"
-                        value={selectedEmployee.department || ""}
-                        readOnly
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Personalnummer</label>
-                      <input
-                        className="input"
-                        value={selectedEmployee.personnelNumber || ""}
-                        readOnly
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Name</label>
-                      <input
-                        className="input"
-                        value={selectedEmployee.fullName || ""}
-                        readOnly
-                      />
-                    </div>
-                  </>
-                )}
+    <div className="form-group">
+      <label className="form-label">Mitarbeiter auswählen</label>
+      <select
+        className="select"
+        onChange={(e) => handleSelectEmployee(e.target.value)}
+        value={selectedEmployee?.employeeId || ""}
+      >
+        <option value="">Bitte auswählen…</option>
+        {filteredEmployees.map((e) => (
+          <option key={e.employeeId} value={e.employeeId}>
+            {e.fullName} ({e.personnelNumber})
+          </option>
+        ))}
+      </select>
+    </div>
 
-                <div className="form-group">
-                  <label className="form-label">Schlüssel auswählen</label>
-                  <select
-                    className="select"
-                    value={selectedKeyId}
-                    onChange={(e) => setSelectedKeyId(e.target.value)}
-                  >
-                    <option value="">Bitte auswählen…</option>
-                    {keys.map((k) => (
-                      <option key={k.keyId} value={k.keyId}>
-                        {k.system} {k.number ? "– " + k.number : ""} ({k.description})
-                      </option>
-                    ))}
-                  </select>
-                  <div className="form-help">
-                    Pro physischem Schlüssel wird ein Datensatz geführt (Schließsystem + Nummer + Beschreibung).
-                  </div>
-                </div>
+    {selectedEmployee && (
+      <>
+        <div className="form-group">
+          <label className="form-label">Abteilung</label>
+          <input
+            className="input"
+            value={selectedEmployee.department || ""}
+            readOnly
+          />
+        </div>
 
-                <div className="form-group">
-                  <label className="form-label">Weitere Schlüssel / Bemerkungen</label>
-                  <textarea
-                    value={comment}
-                    onChange={(e) => setComment(e.target.value)}
-                    placeholder="Optionale Zusatzinformationen zur Ausgabe…"
-                  />
-                </div>
-              </div>
+        <div className="form-group">
+          <label className="form-label">Personalnummer</label>
+          <input
+            className="input"
+            value={selectedEmployee.personnelNumber || ""}
+            readOnly
+          />
+        </div>
 
-              <div>
-                <div className="section-title">Unterschriften</div>
-                <div className="section-sub">
-                  Beide Unterschriften werden im PDF-Protokoll gespeichert (PC & iPad geeignet).
-                </div>
-                <div className="signatures">
-                  <SignaturePad
-                    label="Ausgehändigt durch"
-                    role="Mitarbeiter, der den Schlüssel übergibt"
-                    value={issuedBySignature}
-                    onChange={setIssuedBySignature}
-                  />
-                  <SignaturePad
-                    label="Empfangen durch"
-                    role="Mitarbeiter, der den Schlüssel erhält"
-                    value={receivedBySignature}
-                    onChange={setReceivedBySignature}
-                  />
-                </div>
-              </div>
-            </div>
+        <div className="form-group">
+          <label className="form-label">Name</label>
+          <input
+            className="input"
+            value={selectedEmployee.fullName || ""}
+            readOnly
+          />
+        </div>
+      </>
+    )}
 
-            <div className="footer-actions">
-              <button type="button" className="btn">Abbrechen</button>
-              <button type="submit" className="btn btn-primary">
-                Schlüssel-Ausgabe speichern &amp; PDF erzeugen
-              </button>
-            </div>
-          </form>
+    <div className="form-group">
+      <label className="form-label">Schlüssel auswählen</label>
+      <select
+        className="select"
+        value={selectedKeyId}
+        onChange={(e) => setSelectedKeyId(e.target.value)}
+      >
+        <option value="">Bitte auswählen…</option>
+        {keys.map((k) => (
+          <option key={k.keyId} value={k.keyId}>
+            {k.system} {k.number ? "– " + k.number : ""} ({k.description})
+          </option>
+        ))}
+      </select>
+
+      <div className="form-help">
+        Pro physischem Schlüssel wird ein Datensatz geführt (Schließsystem + Nummer + Beschreibung).
+      </div>
+    </div>
+
+    <div className="form-group">
+      <label className="form-label">Weitere Schlüssel / Bemerkungen</label>
+      <textarea
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        placeholder="Optionale Zusatzinformationen zur Ausgabe…"
+      />
+    </div>
+  </div>
+
+  {/* ✅ Unterschriften (ganz unten) */}
+  <div style={{ marginTop: 24 }}>
+    <div className="section-title">Unterschriften</div>
+    <div className="section-sub">
+      Beide Unterschriften werden im PDF-Protokoll gespeichert (PC & iPad geeignet).
+    </div>
+
+    <div className="signatures" style={{ marginTop: 12 }}>
+      <SignaturePad
+        label="Ausgehändigt durch"
+        role="Mitarbeiter, der den Schlüssel übergibt"
+        value={issuedBySignature}
+        onChange={setIssuedBySignature}
+      />
+      <SignaturePad
+        label="Empfangen durch"
+        role="Mitarbeiter, der den Schlüssel erhält"
+        value={receivedBySignature}
+        onChange={setReceivedBySignature}
+      />
+    </div>
+  </div>
+
+  {/* Footer Buttons */}
+  <div className="footer-actions">
+    <button type="button" className="btn">Abbrechen</button>
+    <button type="submit" className="btn btn-primary">
+      Schlüssel-Ausgabe speichern &amp; PDF erzeugen
+    </button>
+  </div>
+
+</form>
+
         </div>
       );
     }

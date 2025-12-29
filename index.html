@@ -1271,11 +1271,15 @@ const signInAndLoad = React.useCallback(async () => {
   setError(null);
 
   try {
+    // ✅ 1) Login/Token holen -> Account sofort ins UI
+    const { account } = await getGraphClient();
+    setUser(account || null);
+
+    // ✅ 2) Dann erst Daten laden (darf auch fehlschlagen, User bleibt sichtbar)
     const data = await fetchOneDriveData();
     setEmployees(data.employees || []);
     setKeys(data.keys || []);
     setIssues(data.issues || []);
-    setUser(data.account || null);
   } catch (err) {
     console.error(err);
     setError("Fehler: " + (err?.message || String(err)));
@@ -1286,20 +1290,21 @@ const signInAndLoad = React.useCallback(async () => {
 
 
 
-  // ✅ Beim Laden: nur prüfen, ob ein Account im Cache existiert.
-  // Falls ja → silent laden (ohne Popup). Falls nein → UI anzeigen + Button.
+
 useEffect(() => {
   (async () => {
-    await msalReady; // wichtig
+    await msalReady;
     const acc = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
     if (acc) {
       msalInstance.setActiveAccount(acc);
-      signInAndLoad();
+      setUser(acc);            // ✅ UI zeigt sofort "eingeloggt"
+      signInAndLoad();         // lädt dann Daten
     } else {
       setLoading(false);
     }
   })();
 }, [signInAndLoad]);
+
 
 
   // Datenquelle: OneDrive wenn vorhanden, sonst Fallback

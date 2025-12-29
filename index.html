@@ -732,19 +732,25 @@ const rangeUrl =
       return employees;
     }
 
-    async function fetchOneDriveData() {
-      const { graphClient, account } = await getGraphClient();
-      const [employeesFromTxt, issuesFromExcel] = await Promise.all([
-        loadEmployeesFromPersonalTxt(graphClient),
-        loadExcelIssues(graphClient),
-      ]);
+async function fetchOneDriveData() {
+  const { graphClient, account } = await getGraphClient();
 
-      const employees = mergeEmployees([...employeesFromTxt], issuesFromExcel);
-      const keys = buildKeysFromIssues(issuesFromExcel);
-      const issues = issuesFromExcel;
+  const [employeesFromTxt, issuesFromExcel] = await Promise.all([
+    loadEmployeesFromPersonalTxt(graphClient),
+    loadExcelIssues(graphClient),
+  ]);
 
-      return { employees, keys, issues, account };
-    }
+  const employees = mergeEmployees([...employeesFromTxt], issuesFromExcel);
+  const keys = buildKeysFromIssues(issuesFromExcel);
+
+  // ✅ Issues kommen aus OneDrive JSON (Source of Truth)
+  const folder = "SchluesselAusgabe";
+  const jsonIssues = await getOrCreateIssuesJson(graphClient, folder);
+  const issues = jsonIssues;
+
+  return { employees, keys, issues, account };
+}
+
 
     // -----------------------------------------------------------
     // SignaturePad – Canvas für Unterschrift (Maus/Touch)
@@ -1078,6 +1084,54 @@ async function generateKeyProtocolPdfBlob({
 
   return doc.output("blob");
 }
+async function getOrCreateIssuesJson(graphClient, folder) {
+  const path = `/${folder}/issues.json`;
+  const url = `/me/drive/root:${encodePath(path)}:/content`;
+
+  try {
+    const text = await graphClient.get(url, "text");
+    const data = JSON.parse(text || "[]");
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    // Wenn Datei noch nicht existiert: erstellen
+    const msg = String(e?.message || e);
+    const is404 = msg.includes("404") || msg.toLowerCase().includes("itemnotfound");
+    if (!is404) throw e;
+
+    const empty = [];
+    await graphClient.put(
+      `/me/drive/root:${encodePath(path)}:/content`,
+      new Blob([JSON.stringify(empty, null, 2)], { type: "application/json" }),
+      "application/json"
+    );
+    return empty;
+  }
+}
+
+async function saveIssuesJson(graphClient, folder, issuesArray) {
+  const path = `/${folder}/issues.json`;
+  await graphClient.put(
+    `/me/drive/root:${encodePath(path)}:/content`,
+    new Blob([JSON.stringify(issuesArray, null, 2)], { type: "application/json" }),
+    "application/json"
+  );
+}
+
+async function appendIssueToJson(graphClient, folder, newIssue) {
+  const issues = await getOrCreateIssuesJson(graphClient, folder);
+  issues.unshift(newIssue); // vorne rein
+  await saveIssuesJson(graphClient, folder, issues);
+  return issues;
+}
+
+async function markReturnInJson(graphClient, folder, issueId) {
+  const issues = await getOrCreateIssuesJson(graphClient, folder);
+  const updated = issues.map((i) =>
+    i.id === issueId ? { ...i, hasReturn: true, returnDate: isoDate() } : i
+  );
+  await saveIssuesJson(graphClient, folder, updated);
+  return updated;
+}
 
 async function uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob }) {
   await graphClient.put(
@@ -1155,10 +1209,32 @@ function IssueForm({ employees, keys }) {
       const folder = "SchluesselAusgabe"; // <- exakt wie in OneDrive
       const fileName = `Schluessel-Ausgabe_${selectedEmployee.personnelNumber}_${isoDate()}.pdf`;
 
-      await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
+  await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
-      console.log("ISSUE Payload:", payload);
-      alert("✅ Ausgabe-PDF wurde in OneDrive gespeichert.");
+// --------------------------------------------
+// ✅ HIER: Issue auch in issues.json speichern
+// --------------------------------------------
+const newIssue = {
+  id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()),
+  employeeName: selectedEmployee.fullName,
+  personnelNumber: selectedEmployee.personnelNumber,
+  department: selectedEmployee.department || "",
+  system: key?.system || "",
+  keyId: selectedKeyId,
+  otherKeys: comment || "",
+  issueDate: isoDate(),
+  hasReturn: false,
+  returnDate: null,
+  pdfFileName: fileName,
+};
+
+const updatedIssues = await appendIssueToJson(graphClient, folder, newIssue);
+
+// 🔥 Dashboard & Rückgabe sofort aktualisieren
+onIssueCreated && onIssueCreated(updatedIssues);
+
+alert("✅ Ausgabe gespeichert & PDF in OneDrive abgelegt.");
+
 
       // ✅ kompletter Reset nach Erfolg (auch aus Sicherheitsgründen)
       setEmployeeSearch("");
@@ -1320,7 +1396,8 @@ function IssueForm({ employees, keys }) {
 // -----------------------------------------------------------
 // Formular: Rückgabe (nutzt issues-Prop)
 // -----------------------------------------------------------
-function ReturnForm({ issues }) {
+function ReturnForm({ issues, onIssuesUpdated }) {
+
   const [search, setSearch] = useState("");
 
   const outstanding = issues.filter((i) => !i.hasReturn);
@@ -1333,31 +1410,37 @@ function ReturnForm({ issues }) {
       (i.personnelNumber || "").toLowerCase().includes(term)
     );
   });
+const handleReturn = async (issue) => {
+  try {
+    // 1) Rückgabe-PDF erzeugen
+    const pdfBlob = await generateKeyProtocolPdfBlob({
+      type: "RETURN",
+      issue,
+      comment: issue?.otherKeys || "",
+    });
 
-  const handleReturn = async (issue) => {
-    try {
-      // 1) Rückgabe-PDF erzeugen
-      const pdfBlob = await generateKeyProtocolPdfBlob({
-        type: "RETURN",
-        issue,
-        comment: issue?.otherKeys || "",
-      });
+    // 2) Upload nach OneDrive
+    const { graphClient } = await getGraphClient();
 
-      // 2) Upload nach OneDrive
-      const { graphClient } = await getGraphClient();
+    const folder = "SchluesselAusgabe";
+    const pn = issue?.personnelNumber || "unknown";
+    const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
 
-      const folder = "SchluesselAusgabe";
-      const pn = issue?.personnelNumber || "unknown";
-      const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
+    await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
-      await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
+    // --------------------------------------------
+    // ✅ HIER: issues.json aktualisieren + UI updaten
+    // --------------------------------------------
+    const updatedIssues = await markReturnInJson(graphClient, folder, issue.id, fileName);
+    onIssuesUpdated && onIssuesUpdated(updatedIssues);
 
-      alert("✅ Rückgabe-PDF wurde in OneDrive gespeichert.");
-    } catch (err) {
-      console.error(err);
-      alert("❌ Rückgabe fehlgeschlagen: " + (err?.message || String(err)));
-    }
-  };
+    alert("✅ Rückgabe gespeichert & PDF in OneDrive abgelegt.");
+  } catch (err) {
+    console.error(err);
+    alert("❌ Rückgabe fehlgeschlagen: " + (err?.message || String(err)));
+  }
+};
+
 
   return (
     <div className="card">
@@ -1584,8 +1667,22 @@ useEffect(() => {
       </div>
 
       {activeTab === "dashboard" && <Dashboard issues={issuesData} />}
-      {activeTab === "issue" && <IssueForm employees={employeesData} keys={keysData} />}
-      {activeTab === "return" && <ReturnForm issues={issuesData} />}
+
+{activeTab === "issue" && (
+  <IssueForm
+    employees={employeesData}
+    keys={keysData}
+    onIssueCreated={(arr) => setIssues(arr)}
+  />
+)}
+
+{activeTab === "return" && (
+  <ReturnForm
+    issues={issuesData}
+    onIssuesUpdated={(arr) => setIssues(arr)}
+  />
+)}
+
     </>
   );
 }

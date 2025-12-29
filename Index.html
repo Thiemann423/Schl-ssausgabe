@@ -445,14 +445,13 @@
     // OneDrive / Graph: Daten aus Personal.txt + Excel laden
     // -----------------------------------------------------------
 
-    // TODO: HIER eure echten IDs eintragen:
     const msalConfig = {
-      auth: {
-        clientId: "DEINE_CLIENT_ID_AUS_AZURE_AD", // z.B. 12345678-abcd-...
-        authority: "https://login.microsoftonline.com/DEINE_TENANT_ID", // z.B. 11111111-2222-...
-        redirectUri: window.location.origin,
-      },
-    };
+  auth: {
+    clientId: "efc76603-8876-48b3-a942-83f27694e4e6",
+    authority: "https://login.microsoftonline.com/f54f53bb-d0ff-4b78-bcf4-4aaee8b24428",
+    redirectUri: "https://thiemann423.github.io/Schl-ssausgabe/",
+  },
+};
 
     const loginRequest = {
       scopes: [
@@ -529,9 +528,9 @@
     }
 
     async function loadExcelIssues(graphClient) {
-      // TODO: Tabellenblatt-Namen ggf. anpassen ("Tabelle1")
       const excelBasePath =
-        "/me/drive/root:/SchluesselAusgabe/Schlüssel Schließplan Verteilung Mitarbeiter.xlsx";
+"/me/drive/root:/SchluesselAusgabe/Schluessel_Schliessplan_Verteilung_Mitarbeiter.xlsx";
+
       const rangeUrl =
         excelBasePath + ":/workbook/worksheets('Tabelle1')/usedRange(valuesOnly=true)";
       const json = await graphClient.get(rangeUrl, "json");

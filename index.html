@@ -554,12 +554,13 @@ function encodePath(p) {
 
 
 async function findItemByName(graphClient, fileName) {
-  // Wichtig: fileName nicht encodeURIComponent in die Quotes
-  const res = await graphClient.get(`/me/drive/root/search(q='${fileName}')`);
+  const q = encodeURIComponent(fileName);
+  const res = await graphClient.get(`/me/drive/root/search(q='${q}')`);
   const hit = res?.value?.[0];
   if (!hit) throw new Error(`Datei nicht gefunden: ${fileName} (Drive search)`);
   return hit;
 }
+
 
 
 
@@ -603,8 +604,9 @@ async function loadExcelIssues(graphClient) {
   const sheetName = "Tabelle1"; // laut deinem Screenshot / Datei
 
   // usedRange aus der gefundenen Datei holen
-  const rangeUrl =
-    `/me/drive/items/${item.id}/workbook/worksheets('${encodeURIComponent(sheetName)}')/usedRange(valuesOnly=true)`;
+const rangeUrl =
+  `/me/drive/items/${item.id}/workbook/worksheets('${sheetName}')/usedRange(valuesOnly=true)`;
+
 
   const json = await graphClient.get(rangeUrl, "json");
 

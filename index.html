@@ -501,26 +501,17 @@ const msalReady = msalInstance.initialize();
   const accessToken = tokenResponse.accessToken;
 
  const graphClient = {
-    async get(url, responseType = "json") {
-      const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
-        headers: { Authorization: "Bearer " + accessToken },
-      });
-      if (!res.ok) throw new Error(await res.text());
-      return responseType === "arraybuffer" ? res.arrayBuffer() : res.json();
-    },
+  async get(url, responseType = "json") {
+  const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
+    headers: { Authorization: "Bearer " + accessToken },
+  });
+  if (!res.ok) throw new Error(await res.text());
 
-    async put(url, body, contentType) {
-      const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
-        method: "PUT",
-        headers: {
-          Authorization: "Bearer " + accessToken,
-          "Content-Type": contentType,
-        },
-        body,
-      });
-      if (!res.ok) throw new Error(await res.text());
-      return res.json();
-    },
+  if (responseType === "arraybuffer") return res.arrayBuffer();
+  if (responseType === "text") return res.text();
+  return res.json();
+},
+
   };
 
   return { graphClient, account };
@@ -1266,24 +1257,10 @@ function IssueForm({ employees, keys }) {
 }
 
 
-    // -----------------------------------------------------------
-    // Formular: Rückgabe (nutzt issues-Prop)
-    // -----------------------------------------------------------
-    function ReturnForm({ issues }) {
-      const [search, setSearch] = useState("");
-
-      const outstanding = issues.filter((i) => !i.hasReturn);
-
-      const filteredIssues = outstanding.filter((i) => {
-        const term = search.toLowerCase();
-        if (!term) return true;
-        return (
-          (i.employeeName || "").toLowerCase().includes(term) ||
-          (i.personnelNumber || "").toLowerCase().includes(term)
-        );
-      });
-
- function ReturnForm({ issues }) {
+// -----------------------------------------------------------
+// Formular: Rückgabe (nutzt issues-Prop)
+// -----------------------------------------------------------
+function ReturnForm({ issues }) {
   const [search, setSearch] = useState("");
 
   const outstanding = issues.filter((i) => !i.hasReturn);
@@ -1341,7 +1318,9 @@ function IssueForm({ employees, keys }) {
 
       <div className="table-wrapper">
         {filteredIssues.length === 0 ? (
-          <div className="empty-state">Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.</div>
+          <div className="empty-state">
+            Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.
+          </div>
         ) : (
           <table>
             <thead>
@@ -1378,6 +1357,7 @@ function IssueForm({ employees, keys }) {
     </div>
   );
 }
+
 
 
     // -----------------------------------------------------------

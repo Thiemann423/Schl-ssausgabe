@@ -460,8 +460,9 @@ const msalConfig = {
 
 
 const loginRequest = {
-  scopes: ["User.Read", "Files.Read"],
+  scopes: ["User.Read", "Files.ReadWrite"],
 };
+
 
 
     const msalInstance = new msal.PublicClientApplication(msalConfig);
@@ -1235,11 +1236,11 @@ function App() {
     },
   ];
 
-  // ✅ Login + Daten laden: NUR per Klick (Popup sicher)
-async function signInAndLoad() {
-  await msalReady;            // <-- wichtig
+const signInAndLoad = React.useCallback(async () => {
+  await msalReady;
   setLoading(true);
   setError(null);
+
   try {
     const data = await fetchOneDriveData();
     setEmployees(data.employees || []);
@@ -1252,22 +1253,25 @@ async function signInAndLoad() {
   } finally {
     setLoading(false);
   }
-}
+}, []);
+
 
 
   // ✅ Beim Laden: nur prüfen, ob ein Account im Cache existiert.
   // Falls ja → silent laden (ohne Popup). Falls nein → UI anzeigen + Button.
-  useEffect(() => {
+useEffect(() => {
+  (async () => {
+    await msalReady; // wichtig
     const acc = msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
     if (acc) {
       msalInstance.setActiveAccount(acc);
-      // Versuche Daten zu laden – falls Token nicht silent geht, zeigt fetchOneDriveData später Fehler
-      // (und du kannst dann per Button nochmal anmelden)
       signInAndLoad();
     } else {
       setLoading(false);
     }
-  }, []);
+  })();
+}, [signInAndLoad]);
+
 
   // Datenquelle: OneDrive wenn vorhanden, sonst Fallback
   const employeesData = employees.length ? employees : FALLBACK_EMPLOYEES;

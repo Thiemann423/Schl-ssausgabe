@@ -468,8 +468,7 @@ const msalReady = msalInstance.initialize();
 
 
 
-  async function getGraphClient() {
-  // ✅ WICHTIG: MSAL initialisieren lassen (sonst endpoint/CORS Stress möglich)
+async function getGraphClient() {
   await msalReady;
 
   let account = msalInstance.getActiveAccount();
@@ -478,7 +477,6 @@ const msalReady = msalInstance.initialize();
     if (accounts.length > 0) account = accounts[0];
   }
 
-  // ✅ Nur wenn wirklich kein Account vorhanden ist: Login per Popup
   if (!account) {
     const loginResult = await msalInstance.loginPopup(loginRequest);
     account = loginResult.account;
@@ -488,38 +486,72 @@ const msalReady = msalInstance.initialize();
 
   let tokenResponse;
   try {
-    // ✅ Erst silent versuchen (nutzt Cache / vorhandene Session)
     tokenResponse = await msalInstance.acquireTokenSilent({
       ...loginRequest,
       account,
     });
   } catch (e) {
-    // ✅ Wenn silent nicht geht (z.B. first time / expired / interaction required)
     tokenResponse = await msalInstance.acquireTokenPopup(loginRequest);
   }
 
   const accessToken = tokenResponse.accessToken;
 
- const graphClient = {
-  async get(url, responseType = "json") {
-  const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
-    headers: { Authorization: "Bearer " + accessToken },
-  });
-  if (!res.ok) throw new Error(await res.text());
+  const graphClient = {
+    async get(url, responseType = "json") {
+      const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
+        headers: { Authorization: "Bearer " + accessToken },
+      });
+      if (!res.ok) {
+        throw new Error("Graph GET " + res.status + ": " + (await res.text()));
+      }
 
-  if (responseType === "arraybuffer") return res.arrayBuffer();
-  if (responseType === "text") return res.text();
-  return res.json();
-},
+      if (responseType === "arraybuffer") return res.arrayBuffer();
+      if (responseType === "text") return res.text();
+      return res.json();
+    },
 
+    async put(url, body, contentType) {
+      const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
+        method: "PUT",
+        headers: {
+          Authorization: "Bearer " + accessToken,
+          "Content-Type": contentType,
+        },
+        body,
+      });
+
+      if (!res.ok) {
+        throw new Error("Graph PUT " + res.status + ": " + (await res.text()));
+      }
+      return res.json();
+    },
+
+    // optional (falls ihr Ordner/Datei-Metadaten anlegen wollt)
+    async post(url, jsonBody) {
+      const res = await fetch("https://graph.microsoft.com/v1.0" + url, {
+        method: "POST",
+        headers: {
+          Authorization: "Bearer " + accessToken,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(jsonBody),
+      });
+
+      if (!res.ok) {
+        throw new Error("Graph POST " + res.status + ": " + (await res.text()));
+      }
+      return res.json();
+    },
   };
 
   return { graphClient, account };
 }
+
+// optional helper – ok so
 function encodePath(p) {
-  // Encodet nur Segmente, nicht die Slash-Struktur
   return p.split("/").map(encodeURIComponent).join("/");
 }
+
 
 async function findItemByName(graphClient, fileName) {
   // Wichtig: fileName nicht encodeURIComponent in die Quotes

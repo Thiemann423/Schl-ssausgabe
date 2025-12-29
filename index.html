@@ -744,9 +744,26 @@ async function fetchOneDriveData() {
   const keys = buildKeysFromIssues(issuesFromExcel);
 
   // ✅ Issues kommen aus OneDrive JSON (Source of Truth)
-  const folder = "SchluesselAusgabe";
-  const jsonIssues = await getOrCreateIssuesJson(graphClient, folder);
-  const issues = jsonIssues;
+const folder = "SchluesselAusgabe";
+const jsonIssues = await getOrCreateIssuesJson(graphClient, folder);
+
+// Excel + JSON zusammenführen (JSON überschreibt Excel bei gleicher id)
+const map = new Map();
+
+// 1) erst Excel rein
+(issuesFromExcel || []).forEach((i) => {
+  const id = i.id || `${i.personnelNumber || ""}_${i.issueDate || ""}_${i.system || ""}`;
+  map.set(id, { ...i, id });
+});
+
+// 2) dann JSON drüber (hatReturn etc. gewinnt)
+(jsonIssues || []).forEach((i) => {
+  const id = i.id || `${i.personnelNumber || ""}_${i.issueDate || ""}_${i.system || ""}`;
+  map.set(id, { ...map.get(id), ...i, id });
+});
+
+const issues = Array.from(map.values());
+
 
   return { employees, keys, issues, account };
 }
@@ -1232,7 +1249,8 @@ const newIssue = {
 const updatedIssues = await appendIssueToJson(graphClient, folder, newIssue);
 
 // 🔥 Dashboard & Rückgabe sofort aktualisieren
-onIssueCreated && onIssueCreated(updatedIssues);
+if (typeof onIssuesUpdated === "function") onIssuesUpdated(updatedIssues);
+
 
 alert("✅ Ausgabe gespeichert & PDF in OneDrive abgelegt.");
 
@@ -1673,9 +1691,10 @@ useEffect(() => {
   <IssueForm
     employees={employeesData}
     keys={keysData}
-    onIssueCreated={(arr) => setIssues(arr)}
+    onIssuesUpdated={(arr) => setIssues(arr)}
   />
 )}
+
 
 {activeTab === "return" && (
   <ReturnForm
@@ -1683,6 +1702,7 @@ useEffect(() => {
     onIssuesUpdated={(arr) => setIssues(arr)}
   />
 )}
+
 
     </>
   );

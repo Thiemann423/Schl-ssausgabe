@@ -1219,30 +1219,42 @@ function App() {
     },
   ];
 
-  useEffect(() => {
-    fetchOneDriveData()
-      .then((data) => {
-        setEmployees(data.employees || []);
-        setKeys(data.keys || []);
-        setIssues(data.issues || []);
-        setUser(data.account || null);
-        setError(null);
-      })
-      .catch((err) => {
-        console.error(err);
-        setError("Fehler: " + (err?.message || String(err)));
-        // Wichtig: nicht blockieren – UI bleibt trotzdem nutzbar
-      })
-      .finally(() => setLoading(false));
-  }, []);
+useEffect(() => {
+  let cancelled = false;
+
+  fetchOneDriveData()
+    .then((data) => {
+      if (cancelled) return;
+      setEmployees(data.employees || []);
+      setKeys(data.keys || []);
+      setIssues(data.issues || []);
+      setUser(data.account || null);
+      setError(null);
+    })
+    .catch((err) => {
+      console.error(err);
+      if (cancelled) return;
+      setError("Fehler: " + (err?.message || String(err)));
+    })
+    .finally(() => {
+      if (cancelled) return;
+      setLoading(false);
+    });
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
+
 
   // Datenquelle: OneDrive wenn vorhanden, sonst Fallback
+   // Datenquelle: OneDrive wenn vorhanden, sonst Fallback
   const employeesData = employees.length ? employees : FALLBACK_EMPLOYEES;
   const keysData = keys.length ? keys : FALLBACK_KEYS;
   const issuesData = issues.length ? issues : FALLBACK_ISSUES;
 
   const displayName = user?.name || "Benutzer";
-  const mail = user?.username || "";
+  const mail = user?.username || user?.email || "";
 
   return (
     <>
@@ -1306,6 +1318,7 @@ function App() {
     </>
   );
 }
+
 
 
     const root = ReactDOM.createRoot(document.getElementById("root"));

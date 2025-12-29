@@ -563,8 +563,13 @@ async function loadEmployeesFromPersonalTxt(graphClient) {
 
 
 async function loadExcelIssues(graphClient) {
-  const item = await findItemByName(graphClient, "Schluessel_Schliessplan_Verteilung_Mitarbeiter.xlsx");
+  // Excel-Datei im OneDrive finden (egal wo sie liegt)
+  const item = await findItemByName(
+    graphClient,
+    "Schluessel_Schliessplan_Verteilung_Mitarbeiter.xlsx"
+  );
 
+  // Workbook-Range über die Item-ID abfragen
   const rangeUrl =
     `/me/drive/items/${item.id}/workbook/worksheets('Tabelle1')/usedRange(valuesOnly=true)`;
 
@@ -606,7 +611,9 @@ async function loadExcelIssues(graphClient) {
     const rueckgabe = value(idxRueckgabe);
 
     let personnelNumber = pnRaw;
-    if (pnRaw && /^\d+\.0$/.test(pnRaw)) personnelNumber = String(parseInt(pnRaw, 10));
+    if (pnRaw && /^\d+\.0$/.test(pnRaw)) {
+      personnelNumber = String(parseInt(pnRaw, 10));
+    }
 
     issues.push({
       id: i++,
@@ -623,6 +630,7 @@ async function loadExcelIssues(graphClient) {
 
   return issues;
 }
+
 
 
     function buildKeysFromIssues(issues) {

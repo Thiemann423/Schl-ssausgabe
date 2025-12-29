@@ -514,98 +514,116 @@ const msalReady = msalInstance.initialize();
 
   return { graphClient, account };
 }
+function encodePath(p) {
+  // Encodet nur Segmente, nicht die Slash-Struktur
+  return p.split("/").map(encodeURIComponent).join("/");
+}
+
+async function findItemByName(graphClient, fileName) {
+  // Wichtig: fileName nicht encodeURIComponent in die Quotes
+  const res = await graphClient.get(`/me/drive/root/search(q='${fileName}')`);
+  const hit = res?.value?.[0];
+  if (!hit) throw new Error(`Datei nicht gefunden: ${fileName} (Drive search)`);
+  return hit;
+}
 
 
-    async function loadEmployeesFromPersonalTxt(graphClient) {
-      const path = "/me/drive/root:/SchluesselAusgabe/Personal.txt:/content";
-      const content = await graphClient.get(path, "text");
 
-      const lines = content.split(/\\r?\\n/);
-      const employees = [];
-      let idCounter = 1;
+async function loadEmployeesFromPersonalTxt(graphClient) {
+  // Datei im OneDrive finden (egal in welchem Unterordner)
+  const item = await findItemByName(graphClient, "Personal.txt");
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        const parts = trimmed.split(";");
-        if (parts.length < 2) continue;
-        const personnelNumber = parts[0].trim();
-        const fullName = parts[1].trim();
-        employees.push({
-          employeeId: "e" + idCounter++,
-          personnelNumber,
-          fullName,
-          department: null,
-        });
-      }
-      return employees;
-    }
+  // Inhalt der Datei laden
+  const content = await graphClient.get(
+    `/me/drive/items/${item.id}/content`,
+    "text"
+  );
 
-    async function loadExcelIssues(graphClient) {
-      const excelBasePath =
-"/me/drive/root:/SchluesselAusgabe/Schluessel_Schliessplan_Verteilung_Mitarbeiter.xlsx";
+  const lines = content.split(/\r?\n/);
+  const employees = [];
+  let idCounter = 1;
 
-      const rangeUrl =
-        excelBasePath + ":/workbook/worksheets('Tabelle1')/usedRange(valuesOnly=true)";
-      const json = await graphClient.get(rangeUrl, "json");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
 
-      const rows = json.values;
-      if (!rows || rows.length === 0) return [];
+    const parts = trimmed.split(";");
+    if (parts.length < 2) continue;
 
-      const header = rows[0].map((h) => String(h).trim());
-      const dataRows = rows.slice(1);
+    employees.push({
+      employeeId: "e" + idCounter++,
+      personnelNumber: parts[0].trim(),
+      fullName: parts[1].trim(),
+      department: null,
+    });
+  }
 
-      const indexOf = (name) => header.findIndex((h) => h === name);
+  return employees;
+}
 
-      const idxAbteilung = indexOf("Abteilung");
-      const idxPersonalnr = indexOf("Personalnummer");
-      const idxName = indexOf("Name");
-      const idxSystem = indexOf("Schließsystem");
-      const idxWeitere = indexOf("weitere Schlüssel");
-      const idxDatum = indexOf("Datum");
-      const idxRueckgabe = indexOf("Rückgabe");
 
-      const issues = [];
-      let i = 1;
+async function loadExcelIssues(graphClient) {
+  const item = await findItemByName(graphClient, "Schluessel_Schliessplan_Verteilung_Mitarbeiter.xlsx");
 
-      for (const row of dataRows) {
-        if (!row || row.length === 0) continue;
-        const value = (idx) =>
-          idx >= 0 && idx < row.length && row[idx] != null && row[idx] !== ""
-            ? String(row[idx]).trim()
-            : null;
+  const rangeUrl =
+    `/me/drive/items/${item.id}/workbook/worksheets('Tabelle1')/usedRange(valuesOnly=true)`;
 
-        const department = value(idxAbteilung);
-        const pnRaw = value(idxPersonalnr);
-        const name = value(idxName);
-        const system = value(idxSystem);
-        const otherKeys = value(idxWeitere);
-        const dateVal = value(idxDatum);
-        const rueckgabe = value(idxRueckgabe);
+  const json = await graphClient.get(rangeUrl, "json");
 
-        let issueDate = dateVal || null;
-        const hasReturn = !!rueckgabe;
-        const returnInfo = rueckgabe || null;
+  const rows = json.values;
+  if (!rows || rows.length === 0) return [];
 
-        let personnelNumber = pnRaw;
-        if (pnRaw && /^\\d+\\.0$/.test(pnRaw)) {
-          personnelNumber = String(parseInt(pnRaw, 10));
-        }
+  const header = rows[0].map((h) => String(h).trim());
+  const dataRows = rows.slice(1);
 
-        issues.push({
-          id: i++,
-          employeeName: name,
-          personnelNumber,
-          department,
-          system,
-          otherKeys,
-          issueDate,
-          hasReturn,
-          returnInfo,
-        });
-      }
-      return issues;
-    }
+  const indexOf = (name) => header.findIndex((h) => h === name);
+
+  const idxAbteilung = indexOf("Abteilung");
+  const idxPersonalnr = indexOf("Personalnummer");
+  const idxName = indexOf("Name");
+  const idxSystem = indexOf("Schließsystem");
+  const idxWeitere = indexOf("weitere Schlüssel");
+  const idxDatum = indexOf("Datum");
+  const idxRueckgabe = indexOf("Rückgabe");
+
+  const issues = [];
+  let i = 1;
+
+  for (const row of dataRows) {
+    if (!row || row.length === 0) continue;
+
+    const value = (idx) =>
+      idx >= 0 && idx < row.length && row[idx] != null && row[idx] !== ""
+        ? String(row[idx]).trim()
+        : null;
+
+    const department = value(idxAbteilung);
+    const pnRaw = value(idxPersonalnr);
+    const name = value(idxName);
+    const system = value(idxSystem);
+    const otherKeys = value(idxWeitere);
+    const dateVal = value(idxDatum);
+    const rueckgabe = value(idxRueckgabe);
+
+    let personnelNumber = pnRaw;
+    if (pnRaw && /^\d+\.0$/.test(pnRaw)) personnelNumber = String(parseInt(pnRaw, 10));
+
+    issues.push({
+      id: i++,
+      employeeName: name,
+      personnelNumber,
+      department,
+      system,
+      otherKeys,
+      issueDate: dateVal || null,
+      hasReturn: !!rueckgabe,
+      returnInfo: rueckgabe || null,
+    });
+  }
+
+  return issues;
+}
+
 
     function buildKeysFromIssues(issues) {
       const systems = new Set();

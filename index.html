@@ -1730,7 +1730,6 @@ const legacyReturned = (issues || []).filter(
   (i) => !!i.hasReturn && !i.returnPdfWebUrl && !i.returnPdfFileName
 );
 
-
 const filterBySearch = (arr) => {
   const term = (search || "").toLowerCase();
   if (!term) return arr;

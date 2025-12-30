@@ -1721,20 +1721,21 @@ function ReturnForm({ issues, onIssuesUpdated }) {
 });
 
 
-      // 2) Upload nach OneDrive
-      const folder = "SchluesselAusgabe";
-      const pn = activeIssue?.personnelNumber || "unknown";
-      const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
+// 2) Upload nach OneDrive
+const folder = "SchluesselAusgabe";
+const pn = activeIssue?.personnelNumber || "unknown";
+const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
 
-      // upload gibt dir idealerweise webUrl zurück (wenn du das so gebaut hast)
-      const uploaded = await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
+await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
-      // 3) issues.json: Rückgabe markieren + optional Signaturen speichern
-      const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id, fileName, {
-        returnPdfWebUrl: uploaded?.webUrl || null,
-        returnIssuedSig: returnIssuedBySignature,     // optional
-        returnReceivedSig: returnReceivedBySignature, // optional
-      });
+// 3) issues.json: Rückgabe markieren + optional Signaturen speichern
+const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id, fileName, {
+  returnPdfWebUrl: oneDrivePdfContentUrl(folder, fileName), // ✅ robust
+  returnIssuedSig: returnIssuedBySignature,                 // optional
+  returnReceivedSig: returnReceivedBySignature,             // optional
+});
+
+;
 
       // 4) UI sofort aktualisieren
       if (typeof onIssuesUpdated === "function") onIssuesUpdated(updatedIssues);

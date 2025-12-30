@@ -1171,16 +1171,23 @@ async function appendIssueToJson(graphClient, folder, newIssue) {
   return issues;
 }
 
-async function markReturnInJson(graphClient, folder, issueId, returnPdfFileName) {
+async function markReturnInJson(graphClient, folder, issueId, returnPdfFileName, returnPdfWebUrl) {
   const issues = await getOrCreateIssuesJson(graphClient, folder);
   const updated = issues.map((i) =>
     i.id === issueId
-      ? { ...i, hasReturn: true, returnDate: isoDate(), returnPdfFileName: returnPdfFileName || null }
+      ? {
+          ...i,
+          hasReturn: true,
+          returnDate: isoDate(),
+          returnPdfFileName: returnPdfFileName || null,
+          returnPdfWebUrl: returnPdfWebUrl || null,   // 🔥 NEU
+        }
       : i
   );
   await saveIssuesJson(graphClient, folder, updated);
   return updated;
 }
+
 
 
 
@@ -1483,15 +1490,16 @@ const handleReturn = async (issue) => {
     const pn = issue?.personnelNumber || "unknown";
     const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
 
-    await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
+   const uploadedItem = await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
     // ✅ 3) JSON aktualisieren (als zurückgegeben markieren)
     const updatedIssues = await markReturnInJson(
-      graphClient,
-      folder,
-      issue.id,
-      fileName
-    );
+   graphClient,
+   folder,
+   issue.id,
+   fileName,
+   uploadedItem?.webUrl || null
+ );
 
     // ✅ 4) UI aktualisieren (Dashboard + Rückgabe)
     if (typeof onIssuesUpdated === "function") {

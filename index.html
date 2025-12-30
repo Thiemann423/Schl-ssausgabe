@@ -1746,94 +1746,92 @@ function ReturnForm({ issues, onIssuesUpdated }) {
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [system, setSystem] = useState("");
-  const [status, setStatus] = useState("OPEN"); // OPEN | LEGACY | ALL
+
+  // ✅ Default: To-do Liste
+  const [status, setStatus] = useState("TODO"); // TODO | OPEN | ALL
 
   // ✅ Rückgabe-Unterschriften
   const [returnIssuedBySignature, setReturnIssuedBySignature] = useState(null);
   const [returnReceivedBySignature, setReturnReceivedBySignature] = useState(null);
 
-  // ✅ damit Pads nach Erfolg wirklich leer sind
+  // ✅ Reset für SignaturePads
   const [sigReset, setSigReset] = useState(0);
 
-  // ✅ welches Issue wird gerade zurückgegeben (für Signaturen + Button)
+  // ✅ aktuell ausgewählter Vorgang
   const [activeIssue, setActiveIssue] = useState(null);
-
-  // ✅ Ref für Scroll zum Unterschriftenblock
   const signaturesRef = useRef(null);
 
-  // ✅ OFFENE Ausgaben = nicht zurückgegeben
-  const openIssues = (issues || []).filter((i) => !i.hasReturn);
+  // ✅ Helfer
+  const isLegacyTodo = (i) => !!i.hasReturn && !i.returnPdfWebUrl && !i.returnPdfFileName; // Altbestand ohne Rückgabe-PDF
+  const isOpen = (i) => !i.hasReturn; // offen
 
-  // ✅ Altbestand = Excel sagt „zurückgegeben“, aber es gibt kein Rückgabe-PDF (noch nicht protokolliert)
-  const legacyReturned = (issues || []).filter(
-    (i) => !!i.hasReturn && !i.returnPdfWebUrl && !i.returnPdfFileName
-  );
+  // ✅ To-do-Listen
+  const openIssues = (issues || []).filter(isOpen);
+  const legacyTodo = (issues || []).filter(isLegacyTodo);
 
-  const isLegacy = (i) => !!i.hasReturn && !i.returnPdfWebUrl && !i.returnPdfFileName;
-
-  // ✅ Basisliste je nach Status
+  // ✅ Basisliste nur "bearbeitbar" (keine fertigen Rückgaben mit PDF)
   const baseList =
-    status === "OPEN"
+    status === "TODO"
+      ? legacyTodo
+      : status === "OPEN"
       ? openIssues
-      : status === "LEGACY"
-      ? legacyReturned
-      : [...openIssues, ...legacyReturned];
+      : [...legacyTodo, ...openIssues]; // ALL = TODO + OPEN
 
   // ✅ Dropdown-Optionen aus aktueller Basisliste
   const departments = Array.from(
     new Set(baseList.map((i) => (i.department || "").trim()).filter(Boolean))
   );
-
   const systems = Array.from(new Set(baseList.map((i) => (i.system || "").trim()).filter(Boolean)));
 
-  // ✅ gemeinsame Filterung (Suche + Abteilung + System)
-  const filtered = (baseList || []).filter((i) => {
-    let match = true;
-    const term = (search || "").toLowerCase();
+  // ✅ Filter (Suche + Abteilung + System)
+  const filtered = baseList
+    .filter((i) => {
+      let match = true;
+      const term = (search || "").toLowerCase();
 
-    if (term) {
-      match =
-        (i.employeeName || "").toLowerCase().includes(term) ||
-        (i.personnelNumber || "").toLowerCase().includes(term);
-    }
+      if (term) {
+        match =
+          (i.employeeName || "").toLowerCase().includes(term) ||
+          (i.personnelNumber || "").toLowerCase().includes(term);
+      }
+      if (match && department) match = (i.department || "").trim() === department;
+      if (match && system) match = (i.system || "").trim() === system;
 
-    if (match && department) {
-      match = (i.department || "").trim() === department;
-    }
+      return match;
+    })
+    // ✅ Sortierung: erst To-do (Altbestand), dann offen; jeweils neu -> alt
+    .sort((a, b) => {
+      const aLegacy = isLegacyTodo(a) ? 0 : 1;
+      const bLegacy = isLegacyTodo(b) ? 0 : 1;
+      if (aLegacy !== bLegacy) return aLegacy - bLegacy;
 
-    if (match && system) {
-      match = (i.system || "").trim() === system;
-    }
+      const da = a.issueDate ? new Date(a.issueDate).getTime() : 0;
+      const db = b.issueDate ? new Date(b.issueDate).getTime() : 0;
+      return db - da;
+    });
 
-    return match;
-  });
-
-  const resetReturnPads = () => {
+  const resetPads = () => {
     setReturnIssuedBySignature(null);
     setReturnReceivedBySignature(null);
     setSigReset((x) => x + 1);
   };
 
-  const handleStartReturn = (issue) => {
+  const handleStart = (issue) => {
     setActiveIssue(issue);
-    resetReturnPads();
-
-    // ✅ sichtbar machen, dass etwas passiert ist
-    setTimeout(() => {
-      signaturesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 0);
+    resetPads();
+    setTimeout(() => signaturesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
 
-  const handleCancelReturn = () => {
+  const handleCancel = () => {
     setActiveIssue(null);
-    resetReturnPads();
+    resetPads();
   };
 
   const handleConfirmReturn = async () => {
     if (!activeIssue) return;
 
     if (!returnIssuedBySignature || !returnReceivedBySignature) {
-      alert("Bitte beide Rückgabe-Unterschriften erfassen.");
+      alert("Bitte beide Unterschriften erfassen.");
       return;
     }
 
@@ -1856,27 +1854,22 @@ function ReturnForm({ issues, onIssuesUpdated }) {
 
       await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
-      // 3) WebUrl robust selbst bauen
+      // 3) WebUrl
       const returnPdfWebUrl = oneDrivePdfContentUrl(folder, fileName);
 
-      // 4) issues.json: Rückgabe markieren + optional Signaturen speichern
+      // 4) issues.json: Rückgabe markieren
       const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id, fileName, {
         returnPdfWebUrl,
         returnIssuedSig: returnIssuedBySignature,
         returnReceivedSig: returnReceivedBySignature,
-
-        // ✅ Snapshot mitschicken, falls es ein Excel-Only Eintrag ist
-        issueSnapshot: activeIssue,
+        issueSnapshot: activeIssue, // wichtig für Excel/Altbestand
       });
 
-      // 5) UI sofort aktualisieren
       if (typeof onIssuesUpdated === "function") onIssuesUpdated(updatedIssues);
 
-      alert("✅ Rückgabe gespeichert & PDF in OneDrive abgelegt.");
-
-      // 6) Cleanup
+      alert("✅ Rückgabe gespeichert & PDF abgelegt.");
       setActiveIssue(null);
-      resetReturnPads();
+      resetPads();
     } catch (err) {
       console.error(err);
       alert("❌ Rückgabe fehlgeschlagen: " + (err?.message || String(err)));
@@ -1884,23 +1877,24 @@ function ReturnForm({ issues, onIssuesUpdated }) {
   };
 
   const emptyText =
-    status === "OPEN"
+    status === "TODO"
+      ? "Keine Vorgänge 'Zu protokollieren (Altbestand)' mit diesen Filtern gefunden."
+      : status === "OPEN"
       ? "Keine offenen Ausgaben mit diesen Filtern gefunden."
-      : status === "LEGACY"
-      ? "Kein Altbestand mit diesen Filtern gefunden."
-      : "Keine offenen/Altbestand-Vorgänge mit diesen Filtern gefunden.";
+      : "Keine bearbeitbaren Vorgänge (Altbestand + offen) mit diesen Filtern gefunden.";
 
   return (
     <div className="card">
-      <div className="section-title">Rückgabe erfassen</div>
+      <div className="section-title">Rückgabe</div>
       <div className="section-sub">
-        Mitarbeiter verlassen das Unternehmen oder geben Schlüssel zurück – hier erfasst du die Rückgabe.
+        Hier siehst du nur bearbeitbare Vorgänge: <b>Zu protokollieren (Altbestand)</b> und <b>Offen</b>.
+        Fertige Rückgaben mit Rückgabe-PDF findest du im Dashboard.
       </div>
 
       <div className="filters-row">
         <input
           className="input"
-          placeholder="Mitarbeiter oder Personalnummer suchen…"
+          placeholder="Suche nach Name oder Personalnummer…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -1923,15 +1917,15 @@ function ReturnForm({ issues, onIssuesUpdated }) {
           ))}
         </select>
 
-        {/* ✅ Statusfilter statt “2 Tabellen unten” */}
+        {/* ✅ Super verständlicher Status */}
         <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
-          <option value="OPEN">Offen</option>
-          <option value="LEGACY">Altbestand</option>
-          <option value="ALL">Alle</option>
+          <option value="TODO">Zu protokollieren (Altbestand)</option>
+          <option value="OPEN">Offen (ausgegeben)</option>
+          <option value="ALL">Alle (bearbeitbar)</option>
         </select>
 
         <span className="chip">
-          {openIssues.length} offen • {legacyReturned.length} Altbestand • {filtered.length} angezeigt
+          {legacyTodo.length} zu protokollieren • {openIssues.length} offen • {filtered.length} angezeigt
         </span>
       </div>
 
@@ -1945,7 +1939,7 @@ function ReturnForm({ issues, onIssuesUpdated }) {
                 <th>Mitarbeiter</th>
                 <th>Personalnr.</th>
                 <th>Abteilung</th>
-                <th>Schlüssel / System</th>
+                <th>Schließsystem</th>
                 <th>Weitere Schlüssel</th>
                 <th>Ausgabedatum</th>
                 <th>Status</th>
@@ -1954,7 +1948,10 @@ function ReturnForm({ issues, onIssuesUpdated }) {
             </thead>
             <tbody>
               {filtered.map((i) => {
-                const legacy = isLegacy(i);
+                const legacy = isLegacyTodo(i);
+                const label = legacy ? "Zu protokollieren" : "Offen";
+                const btnText = legacy ? "Nachträglich protokollieren" : "Rückgabe erfassen";
+
                 return (
                   <tr key={(legacy ? "legacy-" : "") + i.id}>
                     <td>{i.employeeName}</td>
@@ -1964,21 +1961,15 @@ function ReturnForm({ issues, onIssuesUpdated }) {
                     <td>{i.otherKeys || "–"}</td>
                     <td>{formatDateDE(i.issueDate)}</td>
                     <td>
-                      <span className="tag">{legacy ? "Altbestand" : "Offen"}</span>
+                      <span className="tag">{label}</span>
                     </td>
                     <td>
                       <button
                         type="button"
                         className={"btn " + (activeIssue?.id === i.id ? "btn-primary" : "")}
-                        onClick={() => handleStartReturn(i)}
+                        onClick={() => handleStart(i)}
                       >
-                        {activeIssue?.id === i.id
-                          ? legacy
-                            ? "Protokoll läuft…"
-                            : "Rückgabe läuft…"
-                          : legacy
-                          ? "Nachträglich protokollieren"
-                          : "Rückgabe erfassen"}
+                        {activeIssue?.id === i.id ? "Protokoll läuft…" : btnText}
                       </button>
                     </td>
                   </tr>
@@ -1989,10 +1980,9 @@ function ReturnForm({ issues, onIssuesUpdated }) {
         )}
       </div>
 
-      {/* ✅ Rückgabe-Dialog */}
       {activeIssue && (
         <div ref={signaturesRef} style={{ marginTop: 18 }}>
-          <div className="section-title">Rückgabe: Unterschriften</div>
+          <div className="section-title">Unterschriften</div>
           <div className="section-sub">
             Bitte beide Unterschriften erfassen. Diese werden im Rückgabe-PDF gespeichert.
           </div>
@@ -2015,7 +2005,7 @@ function ReturnForm({ issues, onIssuesUpdated }) {
           </div>
 
           <div className="footer-actions" style={{ marginTop: 12 }}>
-            <button type="button" className="btn" onClick={handleCancelReturn}>
+            <button type="button" className="btn" onClick={handleCancel}>
               Abbrechen
             </button>
             <button type="button" className="btn btn-primary" onClick={handleConfirmReturn}>
@@ -2027,6 +2017,7 @@ function ReturnForm({ issues, onIssuesUpdated }) {
     </div>
   );
 }
+
 
 
 

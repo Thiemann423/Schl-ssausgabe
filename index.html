@@ -603,24 +603,7 @@ async function getOrCreatePersonalTxt(graphClient) {
   }
 }
 
-async function appendEmployeeToPersonalTxt(graphClient, personnelNumber, fullName) {
-  const { id, text } = await getOrCreatePersonalTxt(graphClient);
 
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-
-  // Doppelten Eintrag verhindern
-  const exists = lines.some(l => l.startsWith(personnelNumber + ";"));
-  if (exists) throw new Error("Personalnummer existiert bereits in Personal.txt");
-
-  const newLine = `${personnelNumber};${fullName}`;
-  const updated = [...lines, newLine].join("\n");
-
-  await graphClient.put(
-    `/me/drive/items/${id}/content`,
-    updated,
-    "text/plain"
-  );
-}
 
 
 async function loadEmployeesFromPersonalTxt(graphClient) {
@@ -1736,7 +1719,11 @@ function EmployeeForm({ onEmployeeCreated }) {
       const { graphClient } = await getGraphClient();
 
       // 🔥 In Personal.txt schreiben
-      await appendEmployeeToPersonalTxt(graphClient, personnelNumber.trim(), fullName.trim());
+   await appendEmployeeToPersonalTxt(graphClient, {
+  personnelNumber: personnelNumber.trim(),
+  fullName: fullName.trim(),
+});
+
 
       alert("✅ Mitarbeiter wurde in Personal.txt gespeichert.");
 

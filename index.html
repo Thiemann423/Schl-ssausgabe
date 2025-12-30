@@ -1041,10 +1041,11 @@ function Dashboard({ issues, onRefresh }) {
 
   // ✅ Sichtbarkeit je nach Status
   const visibleIssues = (issues || []).filter((i) => {
-    if (status === "OPEN") return !i.hasReturn;
-    if (status === "RETURNED") return !!i.hasReturn;
-    return true; // ALL
-  });
+  if (status === "OPEN") return !i.returnPdfWebUrl;
+  if (status === "RETURNED") return !!i.returnPdfWebUrl;
+  return true; // ALL
+});
+
 
   const departments = Array.from(
     new Set(visibleIssues.map((i) => (i.department || "").trim()).filter(Boolean))

@@ -1719,10 +1719,16 @@ function ReturnForm({ issues, onIssuesUpdated }) {
     setSigReset((x) => x + 1);
   };
 
-  const handleStartReturn = (issue) => {
-    setActiveIssue(issue);
-    resetReturnPads();
-  };
+ const handleStartReturn = (issue) => {
+  setActiveIssue(issue);
+  resetReturnPads();
+
+  // ✅ sichtbar machen, dass etwas passiert ist
+  setTimeout(() => {
+    signaturesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, 0);
+};
+
 
   const handleCancelReturn = () => {
     setActiveIssue(null);
@@ -1827,9 +1833,14 @@ const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id
                   <td>{i.otherKeys || "–"}</td>
                   <td>{formatDateDE(i.issueDate)}</td>
                   <td>
-                    <button type="button" className="btn" onClick={() => handleStartReturn(i)}>
-                      Rückgabe erfassen
-                    </button>
+                 <button
+  type="button"
+  className={"btn " + (activeIssue?.id === i.id ? "btn-primary" : "")}
+  onClick={() => handleStartReturn(i)}
+>
+  {activeIssue?.id === i.id ? "Rückgabe läuft…" : "Rückgabe erfassen"}
+</button>
+
                   </td>
                 </tr>
               ))}
@@ -1840,7 +1851,7 @@ const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id
 
       {/* ✅ Rückgabe-Dialog (einfach inline unterhalb) */}
       {activeIssue && (
-        <div style={{ marginTop: 18 }}>
+  <div ref={signaturesRef} style={{ marginTop: 18 }}>
           <div className="section-title">Rückgabe: Unterschriften</div>
           <div className="section-sub">
             Bitte beide Unterschriften erfassen. Diese werden im Rückgabe-PDF gespeichert.

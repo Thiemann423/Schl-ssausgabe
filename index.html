@@ -773,17 +773,28 @@ for (const row of dataRows) {
   // ✅ STABILE ID aus Inhalt (damit Rückgabe auch bei alten Excel-Daten klappt)
   const stableId = `${personnelNumber || ""}_${issueDate || ""}_${system || ""}`;
 
-  issues.push({
-    id: stableId,
-    employeeName: name,
-    personnelNumber,
-    department,
-    system,
-    otherKeys,
-    issueDate,
-    hasReturn,
-    returnInfo,
-  });
+issues.push({
+  id: stableId,               // ← sehr wichtig: stabiler Schlüssel
+  employeeName: name,
+  personnelNumber,
+  department,
+  system,
+  otherKeys,
+  issueDate,
+
+  // Excel-Status
+  hasReturn: hasReturn,       // Excel-Rückgabe vorhanden?
+  returnInfo: returnInfo || null,
+
+  // ⛔ Excel hat KEIN Rückgabe-PDF → das ist Altbestand
+  returnPdfFileName: null,
+  returnPdfWebUrl: null,
+
+  // Ausgabe-PDF gibt es bei Excel ebenfalls nicht
+  pdfFileName: null,
+  pdfWebUrl: null,
+});
+
 }
 
 return issues;
@@ -1716,32 +1727,32 @@ function ReturnForm({ issues, onIssuesUpdated }) {
   // ✅ damit Pads nach Erfolg wirklich leer sind
   const [sigReset, setSigReset] = useState(0);
 
-    // ✅ welches Issue wird gerade zurückgegeben (für Signaturen + Button)
+  // ✅ welches Issue wird gerade zurückgegeben (für Signaturen + Button)
   const [activeIssue, setActiveIssue] = useState(null);
 
   // ✅ Ref für Scroll zum Unterschriftenblock
   const signaturesRef = useRef(null);
 
+  // ✅ OFFENE Ausgaben = nicht zurückgegeben
+  const openIssues = (issues || []).filter((i) => !i.hasReturn);
 
-const openIssues = (issues || []).filter((i) => !i.hasReturn);
-
-// ✅ Altbestand = als "returned" markiert, aber kein Rückgabe-PDF vorhanden
-const legacyReturned = (issues || []).filter(
-  (i) => !!i.hasReturn && !i.returnPdfWebUrl && !i.returnPdfFileName
-);
-
-const filterBySearch = (arr) => {
-  const term = (search || "").toLowerCase();
-  if (!term) return arr;
-  return (arr || []).filter((i) =>
-    (i.employeeName || "").toLowerCase().includes(term) ||
-    (i.personnelNumber || "").toLowerCase().includes(term)
+  // ✅ Altbestand = Excel sagt „zurückgegeben“, aber es gibt kein Rückgabe-PDF (noch nicht protokolliert)
+  const legacyReturned = (issues || []).filter(
+    (i) => !!i.hasReturn && !i.returnPdfWebUrl && !i.returnPdfFileName
   );
-};
 
-const filteredOpen = filterBySearch(openIssues);
-const filteredLegacy = filterBySearch(legacyReturned);
+  const filterBySearch = (arr) => {
+    const term = (search || "").toLowerCase();
+    if (!term) return arr;
+    return (arr || []).filter(
+      (i) =>
+        (i.employeeName || "").toLowerCase().includes(term) ||
+        (i.personnelNumber || "").toLowerCase().includes(term)
+    );
+  };
 
+  const filteredOpen = filterBySearch(openIssues);
+  const filteredLegacy = filterBySearch(legacyReturned);
 
   const resetReturnPads = () => {
     setReturnIssuedBySignature(null);
@@ -1749,16 +1760,15 @@ const filteredLegacy = filterBySearch(legacyReturned);
     setSigReset((x) => x + 1);
   };
 
- const handleStartReturn = (issue) => {
-  setActiveIssue(issue);
-  resetReturnPads();
+  const handleStartReturn = (issue) => {
+    setActiveIssue(issue);
+    resetReturnPads();
 
-  // ✅ sichtbar machen, dass etwas passiert ist
-  setTimeout(() => {
-    signaturesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, 0);
-};
-
+    // ✅ sichtbar machen, dass etwas passiert ist
+    setTimeout(() => {
+      signaturesRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 0);
+  };
 
   const handleCancelReturn = () => {
     setActiveIssue(null);
@@ -1777,41 +1787,40 @@ const filteredLegacy = filterBySearch(legacyReturned);
       const { graphClient } = await getGraphClient();
 
       // 1) Rückgabe-PDF erzeugen (inkl. Signaturen)
-    const pdfBlob = await generateKeyProtocolPdfBlob({
-  type: "RETURN",
-  issue: activeIssue,                 // oder issue
-  comment: activeIssue?.otherKeys || "",
-  issuedSig: returnIssuedBySignature,
-  receivedSig: returnReceivedBySignature,
-});
+      const pdfBlob = await generateKeyProtocolPdfBlob({
+        type: "RETURN",
+        issue: activeIssue,
+        comment: activeIssue?.otherKeys || "",
+        issuedSig: returnIssuedBySignature,
+        receivedSig: returnReceivedBySignature,
+      });
 
+      // 2) Upload nach OneDrive
+      const folder = "SchluesselAusgabe";
+      const pn = activeIssue?.personnelNumber || "unknown";
+      const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
 
-// 2) Upload nach OneDrive
-const folder = "SchluesselAusgabe";
-const pn = activeIssue?.personnelNumber || "unknown";
-const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
+      await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
-await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
+      // 3) WebUrl robust selbst bauen
+      const returnPdfWebUrl = oneDrivePdfContentUrl(folder, fileName);
 
-// 3) issues.json: Rückgabe markieren + optional Signaturen speichern
-const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id, fileName, {
-  returnPdfWebUrl: oneDrivePdfContentUrl(folder, fileName),
-  returnIssuedSig: returnIssuedBySignature,
-  returnReceivedSig: returnReceivedBySignature,
+      // 4) issues.json: Rückgabe markieren + optional Signaturen speichern
+      const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id, fileName, {
+        returnPdfWebUrl,
+        returnIssuedSig: returnIssuedBySignature,
+        returnReceivedSig: returnReceivedBySignature,
 
-  // ✅ NEU: Snapshot mitschicken, falls es ein Excel-Only Eintrag ist
-  issueSnapshot: activeIssue,
-});
+        // ✅ Snapshot mitschicken, falls es ein Excel-Only Eintrag ist
+        issueSnapshot: activeIssue,
+      });
 
-
-;
-
-      // 4) UI sofort aktualisieren
+      // 5) UI sofort aktualisieren
       if (typeof onIssuesUpdated === "function") onIssuesUpdated(updatedIssues);
 
       alert("✅ Rückgabe gespeichert & PDF in OneDrive abgelegt.");
 
-      // 5) Cleanup
+      // 6) Cleanup
       setActiveIssue(null);
       resetReturnPads();
     } catch (err) {
@@ -1828,116 +1837,119 @@ const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id
       </div>
 
       <div className="filters-row">
-  <input
-    className="input"
-    placeholder="Mitarbeiter oder Personalnummer suchen…"
-    value={search}
-    onChange={(e) => setSearch(e.target.value)}
-  />
+        <input
+          className="input"
+          placeholder="Mitarbeiter oder Personalnummer suchen…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
 
-  <span className="chip">
-    {filteredOpen.length} offen • {filteredLegacy.length} Altbestand
-  </span>
-</div>
+        <span className="chip">
+          {filteredOpen.length} offen • {filteredLegacy.length} Altbestand
+        </span>
+      </div>
 
-<div className="table-wrapper">
-  {/* ✅ OFFENE AUSGABEN */}
-  <div style={{ marginBottom: 18 }}>
-    <div className="section-sub" style={{ marginBottom: 8 }}>
-      <b>Offene Ausgaben</b> (noch nicht zurückgegeben)
-    </div>
+      <div className="table-wrapper">
+        {/* ✅ OFFENE AUSGABEN */}
+        <div style={{ marginBottom: 18 }}>
+          <div className="section-sub" style={{ marginBottom: 8 }}>
+            <b>Offene Ausgaben</b> (noch nicht zurückgegeben)
+          </div>
 
-    {filteredOpen.length === 0 ? (
-      <div className="empty-state">Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.</div>
-    ) : (
-      <table>
-        <thead>
-          <tr>
-            <th>Mitarbeiter</th>
-            <th>Personalnr.</th>
-            <th>Abteilung</th>
-            <th>Schlüssel / System</th>
-            <th>Weitere Schlüssel</th>
-            <th>Ausgabedatum</th>
-            <th>Aktion</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredOpen.map((i) => (
-            <tr key={i.id}>
-              <td>{i.employeeName}</td>
-              <td>{i.personnelNumber || "–"}</td>
-              <td>{(i.department || "").trim()}</td>
-              <td>{i.system || "n/a"}</td>
-              <td>{i.otherKeys || "–"}</td>
-              <td>{formatDateDE(i.issueDate)}</td>
-              <td>
-                <button
-                  type="button"
-                  className={"btn " + (activeIssue?.id === i.id ? "btn-primary" : "")}
-                  onClick={() => handleStartReturn(i)}
-                >
-                  {activeIssue?.id === i.id ? "Rückgabe läuft…" : "Rückgabe erfassen"}
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    )}
-  </div>
+          {filteredOpen.length === 0 ? (
+            <div className="empty-state">
+              Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Mitarbeiter</th>
+                  <th>Personalnr.</th>
+                  <th>Abteilung</th>
+                  <th>Schlüssel / System</th>
+                  <th>Weitere Schlüssel</th>
+                  <th>Ausgabedatum</th>
+                  <th>Aktion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredOpen.map((i) => (
+                  <tr key={i.id}>
+                    <td>{i.employeeName}</td>
+                    <td>{i.personnelNumber || "–"}</td>
+                    <td>{(i.department || "").trim()}</td>
+                    <td>{i.system || "n/a"}</td>
+                    <td>{i.otherKeys || "–"}</td>
+                    <td>{formatDateDE(i.issueDate)}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className={"btn " + (activeIssue?.id === i.id ? "btn-primary" : "")}
+                        onClick={() => handleStartReturn(i)}
+                      >
+                        {activeIssue?.id === i.id ? "Rückgabe läuft…" : "Rückgabe erfassen"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
 
-  {/* ✅ ALT-BESTAND */}
-  <div>
-    <div className="section-sub" style={{ marginBottom: 8 }}>
-      <b>Altbestand</b> (Excel sagt „zurückgegeben“, aber kein Rückgabe-PDF vorhanden)
-    </div>
+        {/* ✅ ALT-BESTAND */}
+        <div>
+          <div className="section-sub" style={{ marginBottom: 8 }}>
+            <b>Altbestand</b> (Excel sagt „zurückgegeben“, aber kein Rückgabe-PDF vorhanden)
+          </div>
 
-    {filteredLegacy.length === 0 ? (
-      <div className="empty-state">Kein Altbestand ohne Rückgabe-PDF gefunden.</div>
-    ) : (
-      <table>
-        <thead>
-          <tr>
-            <th>Mitarbeiter</th>
-            <th>Personalnr.</th>
-            <th>Abteilung</th>
-            <th>Schlüssel / System</th>
-            <th>Ausgabedatum</th>
-            <th>Status</th>
-            <th>Aktion</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredLegacy.map((i) => (
-            <tr key={"legacy-" + i.id}>
-              <td>{i.employeeName}</td>
-              <td>{i.personnelNumber || "–"}</td>
-              <td>{(i.department || "").trim()}</td>
-              <td>{i.system || "n/a"}</td>
-              <td>{formatDateDE(i.issueDate)}</td>
-              <td><span className="tag">Altbestand</span></td>
-              <td>
-                <button
-                  type="button"
-                  className={"btn " + (activeIssue?.id === i.id ? "btn-primary" : "")}
-                  onClick={() => handleStartReturn(i)}
-                >
-                  {activeIssue?.id === i.id ? "Protokoll läuft…" : "Nachträglich protokollieren"}
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    )}
-  </div>
-</div>
+          {filteredLegacy.length === 0 ? (
+            <div className="empty-state">Kein Altbestand ohne Rückgabe-PDF gefunden.</div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Mitarbeiter</th>
+                  <th>Personalnr.</th>
+                  <th>Abteilung</th>
+                  <th>Schlüssel / System</th>
+                  <th>Ausgabedatum</th>
+                  <th>Status</th>
+                  <th>Aktion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredLegacy.map((i) => (
+                  <tr key={"legacy-" + i.id}>
+                    <td>{i.employeeName}</td>
+                    <td>{i.personnelNumber || "–"}</td>
+                    <td>{(i.department || "").trim()}</td>
+                    <td>{i.system || "n/a"}</td>
+                    <td>{formatDateDE(i.issueDate)}</td>
+                    <td>
+                      <span className="tag">Altbestand</span>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className={"btn " + (activeIssue?.id === i.id ? "btn-primary" : "")}
+                        onClick={() => handleStartReturn(i)}
+                      >
+                        {activeIssue?.id === i.id ? "Protokoll läuft…" : "Nachträglich protokollieren"}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
 
-
-      {/* ✅ Rückgabe-Dialog (einfach inline unterhalb) */}
+      {/* ✅ Rückgabe-Dialog */}
       {activeIssue && (
-  <div ref={signaturesRef} style={{ marginTop: 18 }}>
+        <div ref={signaturesRef} style={{ marginTop: 18 }}>
           <div className="section-title">Rückgabe: Unterschriften</div>
           <div className="section-sub">
             Bitte beide Unterschriften erfassen. Diese werden im Rückgabe-PDF gespeichert.
@@ -1973,6 +1985,7 @@ const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id
     </div>
   );
 }
+
 
 
 function EmployeeForm({ onEmployeeCreated }) {

@@ -552,6 +552,10 @@ function encodePath(p) {
   return p.split("/").map(encodeURIComponent).join("/");
 }
 
+    function oneDrivePdfContentUrl(folder, fileName) {
+  if (!fileName) return null;
+  return `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURIComponent(folder)}/${encodeURIComponent(fileName)}:/content`;
+}
 
 async function findItemByName(graphClient, fileName) {
   const q = encodeURIComponent(fileName);
@@ -990,25 +994,56 @@ const issues = Array.from(map.values());
                 ) : (
                   <table>
                     <thead>
-                      <tr>
-                        <th>Mitarbeiter</th>
-                        <th>Personalnr.</th>
-                        <th>Abteilung</th>
-                        <th>Schließsystem</th>
-                        <th>Weitere Schlüssel</th>
-                        <th>Ausgabedatum</th>
-                      </tr>
-                    </thead>
+  <tr>
+    <th>Mitarbeiter</th>
+    <th>Personalnr.</th>
+    <th>Abteilung</th>
+    <th>Schließsystem</th>
+    <th>Weitere Schlüssel</th>
+    <th>Ausgabedatum</th>
+    <th>Ausgabe-PDF</th>
+    <th>Rückgabe-PDF</th>
+  </tr>
+</thead>
                     <tbody>
                       {filtered.map((row) => (
-                        <tr key={row.id}>
-                          <td>{row.employeeName}</td>
-                          <td>{row.personnelNumber || "–"}</td>
-                          <td>{(row.department || "").trim()}</td>
-                          <td><span className="tag">{row.system || "n/a"}</span></td>
-                          <td>{row.otherKeys || "–"}</td>
-                          <td>{row.issueDate}</td>
-                        </tr>
+                  <tr key={row.id}>
+  <td>{row.employeeName}</td>
+  <td>{row.personnelNumber || "–"}</td>
+  <td>{(row.department || "").trim()}</td>
+  <td><span className="tag">{row.system || "n/a"}</span></td>
+  <td>{row.otherKeys || "–"}</td>
+  <td>{row.issueDate}</td>
+
+  <td>
+    {row.pdfFileName ? (
+      <a
+        href={oneDrivePdfContentUrl("SchluesselAusgabe", row.pdfFileName)}
+        target="_blank"
+        rel="noreferrer"
+      >
+        öffnen
+      </a>
+    ) : (
+      "–"
+    )}
+  </td>
+
+  <td>
+    {row.returnPdfFileName ? (
+      <a
+        href={oneDrivePdfContentUrl("SchluesselAusgabe", row.returnPdfFileName)}
+        target="_blank"
+        rel="noreferrer"
+      >
+        öffnen
+      </a>
+    ) : (
+      "–"
+    )}
+  </td>
+</tr>
+
                       ))}
                     </tbody>
                   </table>
@@ -1141,14 +1176,18 @@ async function appendIssueToJson(graphClient, folder, newIssue) {
   return issues;
 }
 
-async function markReturnInJson(graphClient, folder, issueId) {
+async function markReturnInJson(graphClient, folder, issueId, returnPdfFileName) {
   const issues = await getOrCreateIssuesJson(graphClient, folder);
   const updated = issues.map((i) =>
-    i.id === issueId ? { ...i, hasReturn: true, returnDate: isoDate() } : i
+    i.id === issueId
+      ? { ...i, hasReturn: true, returnDate: isoDate(), returnPdfFileName: returnPdfFileName || null }
+      : i
   );
   await saveIssuesJson(graphClient, folder, updated);
   return updated;
 }
+
+
 
 async function uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob }) {
   await graphClient.put(
@@ -1161,7 +1200,8 @@ async function uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob }) {
 // -----------------------------------------------------------
 // Formular: Schlüssel ausgeben – nutzt employees & keys
 // -----------------------------------------------------------
-function IssueForm({ employees, keys, onIssueCreated }) {
+function IssueForm({ employees, keys, onIssuesUpdated }) {
+
 
   const [employeeSearch, setEmployeeSearch] = useState("");
   const [selectedEmployee, setSelectedEmployee] = useState(null);
@@ -1447,18 +1487,26 @@ const handleReturn = async (issue) => {
 
     await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
-    // --------------------------------------------
-    // ✅ HIER: issues.json aktualisieren + UI updaten
-    // --------------------------------------------
-    const updatedIssues = await markReturnInJson(graphClient, folder, issue.id, fileName);
-    onIssuesUpdated && onIssuesUpdated(updatedIssues);
+    // ✅ 3) JSON aktualisieren (als zurückgegeben markieren)
+    const updatedIssues = await markReturnInJson(
+      graphClient,
+      folder,
+      issue.id,
+      fileName
+    );
 
-    alert("✅ Rückgabe gespeichert & PDF in OneDrive abgelegt.");
+    // ✅ 4) UI aktualisieren (Dashboard + Rückgabe)
+    if (typeof onIssuesUpdated === "function") {
+      onIssuesUpdated(updatedIssues);
+    }
+
+    alert("✅ Rückgabe-PDF wurde in OneDrive gespeichert.");
   } catch (err) {
     console.error(err);
     alert("❌ Rückgabe fehlgeschlagen: " + (err?.message || String(err)));
   }
 };
+
 
 
   return (

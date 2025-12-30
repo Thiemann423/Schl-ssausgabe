@@ -1366,26 +1366,49 @@ async function appendIssueToJson(graphClient, folder, newIssue) {
 async function markReturnInJson(graphClient, folder, issueId, returnFileName, extra = {}) {
   const arr = await getOrCreateIssuesJson(graphClient, folder);
 
+  let found = false;
+
   const updated = (arr || []).map((x) => {
     if (String(x.id) !== String(issueId)) return x;
+    found = true;
 
     return {
       ...x,
       hasReturn: true,
       returnDate: isoDate(),
       returnPdfFileName: returnFileName,
-      // wenn du webUrls pflegst:
       returnPdfWebUrl: extra.returnPdfWebUrl || x.returnPdfWebUrl || null,
-
-      // optional signatures:
       returnIssuedSig: extra.returnIssuedSig || null,
       returnReceivedSig: extra.returnReceivedSig || null,
     };
   });
 
-  await saveIssuesJson(graphClient, folder, updated); // <- deine bestehende Save-Funktion
+  // ✅ Wenn Eintrag nicht existiert (Excel-only), lege ihn neu an
+  if (!found) {
+    const base = extra.issueSnapshot || {};
+    updated.unshift({
+      id: String(issueId),
+      employeeName: base.employeeName || "",
+      personnelNumber: base.personnelNumber || "",
+      department: base.department || "",
+      system: base.system || "",
+      otherKeys: base.otherKeys || "",
+      issueDate: base.issueDate || null,
+
+      hasReturn: true,
+      returnDate: isoDate(),
+      returnPdfFileName: returnFileName,
+      returnPdfWebUrl: extra.returnPdfWebUrl || null,
+
+      returnIssuedSig: extra.returnIssuedSig || null,
+      returnReceivedSig: extra.returnReceivedSig || null,
+    });
+  }
+
+  await saveIssuesJson(graphClient, folder, updated);
   return updated;
 }
+
 
 
 
@@ -1488,7 +1511,8 @@ const newIssue = {
   hasReturn: false,
   returnDate: null,
   pdfFileName: fileName,
-  pdfWebUrl: uploadedItem?.webUrl || null,   // ✅ NEU
+  pdfWebUrl: oneDrivePdfContentUrl(folder, fileName),
+
 };
 
 const updatedIssues = await appendIssueToJson(graphClient, folder, newIssue);
@@ -1730,10 +1754,14 @@ await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
 // 3) issues.json: Rückgabe markieren + optional Signaturen speichern
 const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id, fileName, {
-  returnPdfWebUrl: oneDrivePdfContentUrl(folder, fileName), // ✅ robust
-  returnIssuedSig: returnIssuedBySignature,                 // optional
-  returnReceivedSig: returnReceivedBySignature,             // optional
+  returnPdfWebUrl: oneDrivePdfContentUrl(folder, fileName),
+  returnIssuedSig: returnIssuedBySignature,
+  returnReceivedSig: returnReceivedBySignature,
+
+  // ✅ NEU: Snapshot mitschicken, falls es ein Excel-Only Eintrag ist
+  issueSnapshot: activeIssue,
 });
+
 
 ;
 

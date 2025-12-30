@@ -729,18 +729,36 @@ const rangeUrl =
   const rows = json.values;
   if (!rows || rows.length === 0) return [];
 
-  const header = rows[0].map((h) => String(h || "").trim());
-  const dataRows = rows.slice(1);
+const header = rows[0].map((h) => String(h || "").trim());
+const dataRows = rows.slice(1);
 
-  const indexOf = (name) => header.findIndex((h) => h === name);
+// Normalisierung für robuste Excel-Header-Erkennung
+const norm = (s) =>
+  String(s || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss");
 
-  const idxAbteilung = indexOf("Abteilung");
-  const idxPersonalnr = indexOf("Personalnummer");
-  const idxName = indexOf("Name");
-  const idxSystem = indexOf("Schließsystem");
-  const idxWeitere = indexOf("weitere Schlüssel");
-  const idxDatum = indexOf("Datum");
-  const idxRueckgabe = indexOf("Rückgabe");
+const headerNorm = header.map(norm);
+
+const indexOfAny = (...candidates) => {
+  const cand = candidates.map(norm);
+  return headerNorm.findIndex((h) => cand.includes(h));
+};
+
+// 🔥 Hier deine neuen robusten Spalten-Zuordnungen
+const idxAbteilung  = indexOfAny("Abteilung");
+const idxPersonalnr = indexOfAny("Personalnummer", "Personalnr.", "PersNr", "PN");
+const idxName       = indexOfAny("Name", "Mitarbeiter");
+const idxSystem     = indexOfAny("Schließsystem", "Schliesssystem", "System");
+const idxWeitere    = indexOfAny("weitere Schlüssel", "Weitere Schlüssel", "Bemerkung");
+const idxDatum      = indexOfAny("Datum", "Ausgabedatum");
+const idxRueckgabe  = indexOfAny("Rückgabe", "Rueckgabe", "Return");
+
 
 const issues = [];
 
@@ -762,7 +780,8 @@ for (const row of dataRows) {
 
   const issueDate = excelSerialToIsoDate(dateVal);
 
-  const hasReturn = !!rueckgabe;
+  const hasReturn = !!(rueckgabe && String(rueckgabe).trim());
+
   const returnInfo = rueckgabe || null;
 
   let personnelNumber = pnRaw;

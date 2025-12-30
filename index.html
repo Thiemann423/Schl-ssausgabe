@@ -1226,8 +1226,8 @@ async function generateKeyProtocolPdfBlob({
   key,
   issue,             // bei RETURN: Datensatz aus Tabelle
   comment,
-  issuedSig,
-  receivedSig,
+  issuedSig,         // links
+  receivedSig,       // rechts
 }) {
   if (!window.jspdf?.jsPDF) {
     throw new Error("jsPDF ist nicht geladen. Script-Tag für jsPDF einbinden.");
@@ -1238,9 +1238,29 @@ async function generateKeyProtocolPdfBlob({
 
   const today = isoDate();
 
+  // --- Helper: Signaturen (einheitlich) ---
+  function drawSignatures(doc, leftLabel, rightLabel, leftSig, rightSig) {
+    doc.setFontSize(12);
+    doc.text("Unterschriften", 15, 160);
+
+    doc.setFontSize(11);
+    doc.text(leftLabel, 15, 170);
+    doc.rect(15, 173, 80, 30);
+
+    doc.text(rightLabel, 115, 170);
+    doc.rect(115, 173, 80, 30);
+
+    if (leftSig) doc.addImage(leftSig, "PNG", 16, 174, 78, 28);
+    if (rightSig) doc.addImage(rightSig, "PNG", 116, 174, 78, 28);
+  }
+
   // Titel
   doc.setFontSize(16);
-  doc.text(type === "RETURN" ? "Schlüssel-Rückgabe Protokoll" : "Schlüssel-Ausgabe Protokoll", 15, 18);
+  doc.text(
+    type === "RETURN" ? "Schlüssel-Rückgabe Protokoll" : "Schlüssel-Ausgabe Protokoll",
+    15,
+    18
+  );
 
   doc.setFontSize(11);
   doc.text(`Datum: ${today}`, 15, 28);
@@ -1280,24 +1300,29 @@ async function generateKeyProtocolPdfBlob({
   const lines = doc.splitTextToSize(text, 180);
   doc.text(lines, 15, 120);
 
-  // Signaturen nur bei Ausgabe (weil ReturnForm noch keine SignaturePads hat)
+  // ✅ Signaturen jetzt bei ISSUE UND RETURN möglich
+  // (wenn ReturnForm keine hat, bleiben die Felder einfach leer)
   if (type === "ISSUE") {
-    doc.setFontSize(12);
-    doc.text("Unterschriften", 15, 160);
-
-    doc.setFontSize(11);
-    doc.text("Ausgehändigt durch", 15, 170);
-    doc.rect(15, 173, 80, 30);
-
-    doc.text("Empfangen durch", 115, 170);
-    doc.rect(115, 173, 80, 30);
-
-    if (issuedSig) doc.addImage(issuedSig, "PNG", 16, 174, 78, 28);
-    if (receivedSig) doc.addImage(receivedSig, "PNG", 116, 174, 78, 28);
+    drawSignatures(
+      doc,
+      "Ausgehändigt durch",
+      "Empfangen durch",
+      issuedSig,
+      receivedSig
+    );
+  } else if (type === "RETURN") {
+    drawSignatures(
+      doc,
+      "Rückgabe bestätigt durch",
+      "Rückgabe erfolgt durch",
+      issuedSig,
+      receivedSig
+    );
   }
 
   return doc.output("blob");
 }
+
 async function getOrCreateIssuesJson(graphClient, folder) {
   const path = `/${folder}/issues.json`;
   const url = `/me/drive/root:${encodePath(path)}:/content`;
@@ -1338,22 +1363,30 @@ async function appendIssueToJson(graphClient, folder, newIssue) {
   return issues;
 }
 
-async function markReturnInJson(graphClient, folder, issueId, returnPdfFileName, returnPdfWebUrl) {
-  const issues = await getOrCreateIssuesJson(graphClient, folder);
-  const updated = issues.map((i) =>
-    i.id === issueId
-      ? {
-          ...i,
-          hasReturn: true,
-          returnDate: isoDate(),
-          returnPdfFileName: returnPdfFileName || null,
-          returnPdfWebUrl: returnPdfWebUrl || null,   // 🔥 NEU
-        }
-      : i
-  );
-  await saveIssuesJson(graphClient, folder, updated);
+async function markReturnInJson(graphClient, folder, issueId, returnFileName, extra = {}) {
+  const arr = await getOrCreateIssuesJson(graphClient, folder);
+
+  const updated = (arr || []).map((x) => {
+    if (String(x.id) !== String(issueId)) return x;
+
+    return {
+      ...x,
+      hasReturn: true,
+      returnDate: isoDate(),
+      returnPdfFileName: returnFileName,
+      // wenn du webUrls pflegst:
+      returnPdfWebUrl: extra.returnPdfWebUrl || x.returnPdfWebUrl || null,
+
+      // optional signatures:
+      returnIssuedSig: extra.returnIssuedSig || null,
+      returnReceivedSig: extra.returnReceivedSig || null,
+    };
+  });
+
+  await saveIssuesJson(graphClient, folder, updated); // <- deine bestehende Save-Funktion
   return updated;
 }
+
 
 
 
@@ -1628,8 +1661,17 @@ alert("✅ Ausgabe gespeichert & PDF in OneDrive abgelegt.");
 // Formular: Rückgabe (nutzt issues-Prop)
 // -----------------------------------------------------------
 function ReturnForm({ issues, onIssuesUpdated }) {
-
   const [search, setSearch] = useState("");
+
+  // ✅ Rückgabe-Unterschriften
+  const [returnIssuedBySignature, setReturnIssuedBySignature] = useState(null);
+  const [returnReceivedBySignature, setReturnReceivedBySignature] = useState(null);
+
+  // ✅ damit Pads nach Erfolg wirklich leer sind
+  const [sigReset, setSigReset] = useState(0);
+
+  // ✅ welches Issue wird gerade zurückgegeben (für Signaturen + Button)
+  const [activeIssue, setActiveIssue] = useState(null);
 
   const outstanding = issues.filter((i) => !i.hasReturn);
 
@@ -1641,46 +1683,72 @@ function ReturnForm({ issues, onIssuesUpdated }) {
       (i.personnelNumber || "").toLowerCase().includes(term)
     );
   });
-const handleReturn = async (issue) => {
-  try {
-    // 1) Rückgabe-PDF erzeugen
-    const pdfBlob = await generateKeyProtocolPdfBlob({
-      type: "RETURN",
-      issue,
-      comment: issue?.otherKeys || "",
-    });
 
-    // 2) Upload nach OneDrive
-    const { graphClient } = await getGraphClient();
+  const resetReturnPads = () => {
+    setReturnIssuedBySignature(null);
+    setReturnReceivedBySignature(null);
+    setSigReset((x) => x + 1);
+  };
 
-    const folder = "SchluesselAusgabe";
-    const pn = issue?.personnelNumber || "unknown";
-    const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
+  const handleStartReturn = (issue) => {
+    setActiveIssue(issue);
+    resetReturnPads();
+  };
 
-   const uploadedItem = await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
+  const handleCancelReturn = () => {
+    setActiveIssue(null);
+    resetReturnPads();
+  };
 
-    // ✅ 3) JSON aktualisieren (als zurückgegeben markieren)
-    const updatedIssues = await markReturnInJson(
-   graphClient,
-   folder,
-   issue.id,
-   fileName,
-   uploadedItem?.webUrl || null
- );
+  const handleConfirmReturn = async () => {
+    if (!activeIssue) return;
 
-    // ✅ 4) UI aktualisieren (Dashboard + Rückgabe)
-    if (typeof onIssuesUpdated === "function") {
-      onIssuesUpdated(updatedIssues);
+    if (!returnIssuedBySignature || !returnReceivedBySignature) {
+      alert("Bitte beide Rückgabe-Unterschriften erfassen.");
+      return;
     }
 
-    alert("✅ Rückgabe-PDF wurde in OneDrive gespeichert.");
-  } catch (err) {
-    console.error(err);
-    alert("❌ Rückgabe fehlgeschlagen: " + (err?.message || String(err)));
-  }
-};
+    try {
+      const { graphClient } = await getGraphClient();
+
+      // 1) Rückgabe-PDF erzeugen (inkl. Signaturen)
+    const pdfBlob = await generateKeyProtocolPdfBlob({
+  type: "RETURN",
+  issue: activeIssue,                 // oder issue
+  comment: activeIssue?.otherKeys || "",
+  issuedSig: returnIssuedBySignature,
+  receivedSig: returnReceivedBySignature,
+});
 
 
+      // 2) Upload nach OneDrive
+      const folder = "SchluesselAusgabe";
+      const pn = activeIssue?.personnelNumber || "unknown";
+      const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
+
+      // upload gibt dir idealerweise webUrl zurück (wenn du das so gebaut hast)
+      const uploaded = await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
+
+      // 3) issues.json: Rückgabe markieren + optional Signaturen speichern
+      const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id, fileName, {
+        returnPdfWebUrl: uploaded?.webUrl || null,
+        returnIssuedSig: returnIssuedBySignature,     // optional
+        returnReceivedSig: returnReceivedBySignature, // optional
+      });
+
+      // 4) UI sofort aktualisieren
+      if (typeof onIssuesUpdated === "function") onIssuesUpdated(updatedIssues);
+
+      alert("✅ Rückgabe gespeichert & PDF in OneDrive abgelegt.");
+
+      // 5) Cleanup
+      setActiveIssue(null);
+      resetReturnPads();
+    } catch (err) {
+      console.error(err);
+      alert("❌ Rückgabe fehlgeschlagen: " + (err?.message || String(err)));
+    }
+  };
 
   return (
     <div className="card">
@@ -1701,9 +1769,7 @@ const handleReturn = async (issue) => {
 
       <div className="table-wrapper">
         {filteredIssues.length === 0 ? (
-          <div className="empty-state">
-            Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.
-          </div>
+          <div className="empty-state">Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.</div>
         ) : (
           <table>
             <thead>
@@ -1725,9 +1791,9 @@ const handleReturn = async (issue) => {
                   <td>{(i.department || "").trim()}</td>
                   <td>{i.system || "n/a"}</td>
                   <td>{i.otherKeys || "–"}</td>
-                  <td>{i.issueDate}</td>
+                  <td>{formatDateDE(i.issueDate)}</td>
                   <td>
-                    <button type="button" className="btn" onClick={() => handleReturn(i)}>
+                    <button type="button" className="btn" onClick={() => handleStartReturn(i)}>
                       Rückgabe erfassen
                     </button>
                   </td>
@@ -1737,9 +1803,46 @@ const handleReturn = async (issue) => {
           </table>
         )}
       </div>
+
+      {/* ✅ Rückgabe-Dialog (einfach inline unterhalb) */}
+      {activeIssue && (
+        <div style={{ marginTop: 18 }}>
+          <div className="section-title">Rückgabe: Unterschriften</div>
+          <div className="section-sub">
+            Bitte beide Unterschriften erfassen. Diese werden im Rückgabe-PDF gespeichert.
+          </div>
+
+          <div className="signatures" style={{ marginTop: 12 }}>
+            <SignaturePad
+              key={"ret-issued-" + sigReset}
+              label="Rückgabe bestätigt durch"
+              role="Mitarbeiter, der den Schlüssel entgegennimmt"
+              value={returnIssuedBySignature}
+              onChange={setReturnIssuedBySignature}
+            />
+            <SignaturePad
+              key={"ret-received-" + sigReset}
+              label="Rückgabe erfolgt durch"
+              role="Mitarbeiter, der den Schlüssel zurückgibt"
+              value={returnReceivedBySignature}
+              onChange={setReturnReceivedBySignature}
+            />
+          </div>
+
+          <div className="footer-actions" style={{ marginTop: 12 }}>
+            <button type="button" className="btn" onClick={handleCancelReturn}>
+              Abbrechen
+            </button>
+            <button type="button" className="btn btn-primary" onClick={handleConfirmReturn}>
+              Rückgabe speichern &amp; PDF erzeugen
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
 
 function EmployeeForm({ onEmployeeCreated }) {
   const [personnelNumber, setPersonnelNumber] = useState("");
@@ -2031,6 +2134,7 @@ useEffect(() => {
     onIssuesUpdated={(arr) => setIssues((prev) => mergeIssuesById(prev, arr))}
   />
 )}
+
 
 {activeTab === "employees" && (
   <EmployeeForm

@@ -549,16 +549,18 @@ async function getGraphClient() {
 function mergeIssuesById(prevIssues, updatedJsonIssues) {
   const map = new Map();
 
-  const makeFallbackId = (i) =>
-    i.id || `${i.personnelNumber || ""}_${i.issueDate || ""}_${i.system || ""}`;
+  const makeFallbackId = (i) => {
+    if (i?.id !== undefined && i?.id !== null && String(i.id).trim() !== "") {
+      return String(i.id); // ✅ IMMER String
+    }
+    return `${i.personnelNumber || ""}_${i.issueDate || ""}_${i.system || ""}`;
+  };
 
-  // 1) bisherige (Excel + bereits gemergte) rein
   (prevIssues || []).forEach((i) => {
     const id = makeFallbackId(i);
     map.set(id, { ...i, id });
   });
 
-  // 2) JSON drüber (gewinnt)
   (updatedJsonIssues || []).forEach((i) => {
     const id = makeFallbackId(i);
     map.set(id, { ...map.get(id), ...i, id });
@@ -566,6 +568,7 @@ function mergeIssuesById(prevIssues, updatedJsonIssues) {
 
   return Array.from(map.values());
 }
+
 
 // optional helper – ok so
 function encodePath(p) {
@@ -780,6 +783,7 @@ const rangeUrl =
       issueDate,
       hasReturn,
       returnInfo,
+      id: String(i++)
     });
   }
 
@@ -886,19 +890,29 @@ const jsonIssues = await getOrCreateIssuesJson(graphClient, folder);
 // Excel + JSON zusammenführen (JSON überschreibt Excel bei gleicher id)
 const map = new Map();
 
+// Excel + JSON zusammenführen (JSON überschreibt Excel bei gleicher id)
+const map = new Map();
+
+const makeId = (i) =>
+  String(
+    i.id ??
+      `${i.personnelNumber || ""}_${i.issueDate || ""}_${i.system || ""}`
+  );
+
 // 1) erst Excel rein
 (issuesFromExcel || []).forEach((i) => {
-  const id = i.id || `${i.personnelNumber || ""}_${i.issueDate || ""}_${i.system || ""}`;
+  const id = makeId(i);
   map.set(id, { ...i, id });
 });
 
 // 2) dann JSON drüber (hatReturn etc. gewinnt)
 (jsonIssues || []).forEach((i) => {
-  const id = i.id || `${i.personnelNumber || ""}_${i.issueDate || ""}_${i.system || ""}`;
+  const id = makeId(i);
   map.set(id, { ...map.get(id), ...i, id });
 });
 
 const issues = Array.from(map.values());
+
 
 
   return { employees, keys, issues, account };

@@ -1699,8 +1699,12 @@ function ReturnForm({ issues, onIssuesUpdated }) {
   // ✅ damit Pads nach Erfolg wirklich leer sind
   const [sigReset, setSigReset] = useState(0);
 
-  // ✅ welches Issue wird gerade zurückgegeben (für Signaturen + Button)
+    // ✅ welches Issue wird gerade zurückgegeben (für Signaturen + Button)
   const [activeIssue, setActiveIssue] = useState(null);
+
+  // ✅ Ref für Scroll zum Unterschriftenblock
+  const signaturesRef = useRef(null);
+
 
   const outstanding = issues.filter((i) => !i.hasReturn);
 

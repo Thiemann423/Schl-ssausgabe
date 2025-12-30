@@ -1723,16 +1723,26 @@ function ReturnForm({ issues, onIssuesUpdated }) {
   const signaturesRef = useRef(null);
 
 
-  const outstanding = issues.filter((i) => !i.hasReturn);
+const openIssues = (issues || []).filter((i) => !i.hasReturn);
 
-  const filteredIssues = outstanding.filter((i) => {
-    const term = search.toLowerCase();
-    if (!term) return true;
-    return (
-      (i.employeeName || "").toLowerCase().includes(term) ||
-      (i.personnelNumber || "").toLowerCase().includes(term)
-    );
-  });
+// ✅ Altbestand = als "returned" markiert, aber kein Rückgabe-PDF vorhanden
+const legacyReturned = (issues || []).filter(
+  (i) => !!i.hasReturn && !i.returnPdfWebUrl && !i.returnPdfFileName
+);
+
+
+const filterBySearch = (arr) => {
+  const term = (search || "").toLowerCase();
+  if (!term) return arr;
+  return (arr || []).filter((i) =>
+    (i.employeeName || "").toLowerCase().includes(term) ||
+    (i.personnelNumber || "").toLowerCase().includes(term)
+  );
+};
+
+const filteredOpen = filterBySearch(openIssues);
+const filteredLegacy = filterBySearch(legacyReturned);
+
 
   const resetReturnPads = () => {
     setReturnIssuedBySignature(null);
@@ -1819,56 +1829,112 @@ const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id
       </div>
 
       <div className="filters-row">
-        <input
-          className="input"
-          placeholder="Mitarbeiter oder Personalnummer suchen…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-        <span className="chip">{filteredIssues.length} offene Ausgaben</span>
-      </div>
+  <input
+    className="input"
+    placeholder="Mitarbeiter oder Personalnummer suchen…"
+    value={search}
+    onChange={(e) => setSearch(e.target.value)}
+  />
 
-      <div className="table-wrapper">
-        {filteredIssues.length === 0 ? (
-          <div className="empty-state">Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Mitarbeiter</th>
-                <th>Personalnr.</th>
-                <th>Abteilung</th>
-                <th>Schlüssel / System</th>
-                <th>Weitere Schlüssel</th>
-                <th>Ausgabedatum</th>
-                <th>Aktion</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredIssues.map((i) => (
-                <tr key={i.id}>
-                  <td>{i.employeeName}</td>
-                  <td>{i.personnelNumber || "–"}</td>
-                  <td>{(i.department || "").trim()}</td>
-                  <td>{i.system || "n/a"}</td>
-                  <td>{i.otherKeys || "–"}</td>
-                  <td>{formatDateDE(i.issueDate)}</td>
-                  <td>
-                 <button
-  type="button"
-  className={"btn " + (activeIssue?.id === i.id ? "btn-primary" : "")}
-  onClick={() => handleStartReturn(i)}
->
-  {activeIssue?.id === i.id ? "Rückgabe läuft…" : "Rückgabe erfassen"}
-</button>
+  <span className="chip">
+    {filteredOpen.length} offen • {filteredLegacy.length} Altbestand
+  </span>
+</div>
 
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
+<div className="table-wrapper">
+  {/* ✅ OFFENE AUSGABEN */}
+  <div style={{ marginBottom: 18 }}>
+    <div className="section-sub" style={{ marginBottom: 8 }}>
+      <b>Offene Ausgaben</b> (noch nicht zurückgegeben)
+    </div>
+
+    {filteredOpen.length === 0 ? (
+      <div className="empty-state">Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.</div>
+    ) : (
+      <table>
+        <thead>
+          <tr>
+            <th>Mitarbeiter</th>
+            <th>Personalnr.</th>
+            <th>Abteilung</th>
+            <th>Schlüssel / System</th>
+            <th>Weitere Schlüssel</th>
+            <th>Ausgabedatum</th>
+            <th>Aktion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredOpen.map((i) => (
+            <tr key={i.id}>
+              <td>{i.employeeName}</td>
+              <td>{i.personnelNumber || "–"}</td>
+              <td>{(i.department || "").trim()}</td>
+              <td>{i.system || "n/a"}</td>
+              <td>{i.otherKeys || "–"}</td>
+              <td>{formatDateDE(i.issueDate)}</td>
+              <td>
+                <button
+                  type="button"
+                  className={"btn " + (activeIssue?.id === i.id ? "btn-primary" : "")}
+                  onClick={() => handleStartReturn(i)}
+                >
+                  {activeIssue?.id === i.id ? "Rückgabe läuft…" : "Rückgabe erfassen"}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
+
+  {/* ✅ ALT-BESTAND */}
+  <div>
+    <div className="section-sub" style={{ marginBottom: 8 }}>
+      <b>Altbestand</b> (Excel sagt „zurückgegeben“, aber kein Rückgabe-PDF vorhanden)
+    </div>
+
+    {filteredLegacy.length === 0 ? (
+      <div className="empty-state">Kein Altbestand ohne Rückgabe-PDF gefunden.</div>
+    ) : (
+      <table>
+        <thead>
+          <tr>
+            <th>Mitarbeiter</th>
+            <th>Personalnr.</th>
+            <th>Abteilung</th>
+            <th>Schlüssel / System</th>
+            <th>Ausgabedatum</th>
+            <th>Status</th>
+            <th>Aktion</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredLegacy.map((i) => (
+            <tr key={"legacy-" + i.id}>
+              <td>{i.employeeName}</td>
+              <td>{i.personnelNumber || "–"}</td>
+              <td>{(i.department || "").trim()}</td>
+              <td>{i.system || "n/a"}</td>
+              <td>{formatDateDE(i.issueDate)}</td>
+              <td><span className="tag">Altbestand</span></td>
+              <td>
+                <button
+                  type="button"
+                  className={"btn " + (activeIssue?.id === i.id ? "btn-primary" : "")}
+                  onClick={() => handleStartReturn(i)}
+                >
+                  {activeIssue?.id === i.id ? "Protokoll läuft…" : "Nachträglich protokollieren"}
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    )}
+  </div>
+</div>
+
 
       {/* ✅ Rückgabe-Dialog (einfach inline unterhalb) */}
       {activeIssue && (

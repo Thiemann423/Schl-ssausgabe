@@ -546,6 +546,26 @@ async function getGraphClient() {
 
   return { graphClient, account };
 }
+function mergeIssuesById(prevIssues, updatedJsonIssues) {
+  const map = new Map();
+
+  const makeFallbackId = (i) =>
+    i.id || `${i.personnelNumber || ""}_${i.issueDate || ""}_${i.system || ""}`;
+
+  // 1) bisherige (Excel + bereits gemergte) rein
+  (prevIssues || []).forEach((i) => {
+    const id = makeFallbackId(i);
+    map.set(id, { ...i, id });
+  });
+
+  // 2) JSON drüber (gewinnt)
+  (updatedJsonIssues || []).forEach((i) => {
+    const id = makeFallbackId(i);
+    map.set(id, { ...map.get(id), ...i, id });
+  });
+
+  return Array.from(map.values());
+}
 
 // optional helper – ok so
 function encodePath(p) {
@@ -956,35 +976,52 @@ const issues = Array.from(map.values());
                 </div>
               </div>
 
-              <div className="filters-row">
-                <input
-                  className="input"
-                  placeholder="Suche nach Name oder Personalnummer…"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                />
-                <select
-                  className="select"
-                  value={department}
-                  onChange={(e) => setDepartment(e.target.value)}
-                >
-                  <option value="">Alle Abteilungen</option>
-                  {departments.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
-                <select
-                  className="select"
-                  value={system}
-                  onChange={(e) => setSystem(e.target.value)}
-                >
-                  <option value="">Alle Schließsysteme</option>
-                  {systems.map((s) => (
-                    <option key={s} value={s}>{s}</option>
-                  ))}
-                </select>
-                <span className="chip">{filtered.length} Einträge gefunden</span>
-              </div>
+            <div className="filters-row">
+  <input
+    className="input"
+    placeholder="Suche nach Name oder Personalnummer…"
+    value={search}
+    onChange={(e) => setSearch(e.target.value)}
+  />
+
+  <select
+    className="select"
+    value={department}
+    onChange={(e) => setDepartment(e.target.value)}
+  >
+    <option value="">Alle Abteilungen</option>
+    {departments.map((d) => (
+      <option key={d} value={d}>{d}</option>
+    ))}
+  </select>
+
+  <select
+    className="select"
+    value={system}
+    onChange={(e) => setSystem(e.target.value)}
+  >
+    <option value="">Alle Schließsysteme</option>
+    {systems.map((s) => (
+      <option key={s} value={s}>{s}</option>
+    ))}
+  </select>
+
+  <span className="chip">{filtered.length} Einträge gefunden</span>
+
+  {/* 🔥 HIER: Reset Button */}
+  <button
+    type="button"
+    className="btn"
+    onClick={() => {
+      setSearch("");
+      setDepartment("");
+      setSystem("");
+    }}
+  >
+    Alle anzeigen
+  </button>
+</div>
+
 
               <div className="table-wrapper">
                 {filtered.length === 0 ? (
@@ -1745,17 +1782,17 @@ useEffect(() => {
   <IssueForm
     employees={employeesData}
     keys={keysData}
-    onIssuesUpdated={(arr) => setIssues(arr)}
+    onIssuesUpdated={(arr) => setIssues((prev) => mergeIssuesById(prev, arr))}
   />
 )}
-
 
 {activeTab === "return" && (
   <ReturnForm
     issues={issuesData}
-    onIssuesUpdated={(arr) => setIssues(arr)}
+    onIssuesUpdated={(arr) => setIssues((prev) => mergeIssuesById(prev, arr))}
   />
 )}
+
 
 
     </>

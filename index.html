@@ -1056,7 +1056,7 @@ function Dashboard({ issues, onRefresh }) {
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [system, setSystem] = useState("");
-  const [status, setStatus] = useState("OPEN"); // OPEN | RETURNED | ALL
+  const [status, setStatus] = useState("OPEN"); // OPEN | RETURNED | RETURNED_PDF | LEGACY | ALL
 
   // ✅ NUR EINMAL definieren
   const resetFilters = () => {
@@ -1069,21 +1069,24 @@ function Dashboard({ issues, onRefresh }) {
   // ✅ Stats weiterhin nur offene
   const outstanding = (issues || []).filter((i) => !i.hasReturn);
 
-  // ✅ Sichtbarkeit je nach Status
-  const visibleIssues = (issues || []).filter((i) => {
-  if (status === "OPEN") return !i.returnPdfWebUrl;
-  if (status === "RETURNED") return !!i.returnPdfWebUrl;
-  return true; // ALL
-});
+  // ✅ Helper: Altbestand vs echte Rückgabe-PDFs
+  const isLegacy = (i) => !!i.hasReturn && !i.returnPdfWebUrl && !i.returnPdfFileName;
+  const hasReturnPdf = (i) => !!i.returnPdfWebUrl || !!i.returnPdfFileName;
 
+  // ✅ Status-Filter (Dashboard)
+  const visibleIssues = (issues || []).filter((i) => {
+    if (status === "OPEN") return !i.hasReturn; // offen = keine Rückgabe
+    if (status === "RETURNED") return !!i.hasReturn; // zurückgegeben = inkl. Altbestand
+    if (status === "RETURNED_PDF") return !!i.hasReturn && hasReturnPdf(i); // zurückgegeben + PDF
+    if (status === "LEGACY") return isLegacy(i); // nur Altbestand
+    return true; // ALL
+  });
 
   const departments = Array.from(
     new Set(visibleIssues.map((i) => (i.department || "").trim()).filter(Boolean))
   );
 
-  const systems = Array.from(
-    new Set(visibleIssues.map((i) => (i.system || "").trim()).filter(Boolean))
-  );
+  const systems = Array.from(new Set(visibleIssues.map((i) => (i.system || "").trim()).filter(Boolean)));
 
   const filtered = visibleIssues.filter((i) => {
     let match = true;
@@ -1110,7 +1113,11 @@ function Dashboard({ issues, onRefresh }) {
     status === "OPEN"
       ? "Keine offenen Schlüssel mit diesen Filtern gefunden."
       : status === "RETURNED"
-      ? "Keine zurückgegebenen Vorgänge mit diesen Filtern gefunden."
+      ? "Keine zurückgegebenen Vorgänge (inkl. Altbestand) mit diesen Filtern gefunden."
+      : status === "RETURNED_PDF"
+      ? "Keine zurückgegebenen Vorgänge mit Rückgabe-PDF mit diesen Filtern gefunden."
+      : status === "LEGACY"
+      ? "Kein Altbestand mit diesen Filtern gefunden."
       : "Keine Vorgänge mit diesen Filtern gefunden.";
 
   return (
@@ -1118,9 +1125,7 @@ function Dashboard({ issues, onRefresh }) {
       <div className="dashboard-header">
         <div>
           <div className="section-title">Dashboard</div>
-          <div className="section-sub">
-            Übersicht über Schlüssel-Ausgaben und Rückgaben (mit PDFs).
-          </div>
+          <div className="section-sub">Übersicht über Schlüssel-Ausgaben und Rückgaben (mit PDFs).</div>
         </div>
 
         {/* ✅ Buttons oben rechts */}
@@ -1174,11 +1179,7 @@ function Dashboard({ issues, onRefresh }) {
               onChange={(e) => setSearch(e.target.value)}
             />
 
-            <select
-              className="select"
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-            >
+            <select className="select" value={department} onChange={(e) => setDepartment(e.target.value)}>
               <option value="">Alle Abteilungen</option>
               {departments.map((d) => (
                 <option key={d} value={d}>
@@ -1196,10 +1197,12 @@ function Dashboard({ issues, onRefresh }) {
               ))}
             </select>
 
-            {/* ✅ NEU: Status-Filter */}
+            {/* ✅ Status-Filter inkl. Altbestand */}
             <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="OPEN">Nur offene</option>
-              <option value="RETURNED">Nur zurückgegeben</option>
+              <option value="RETURNED">Nur zurückgegeben (inkl. Altbestand)</option>
+              <option value="RETURNED_PDF">Zurückgegeben (mit Rückgabe-PDF)</option>
+              <option value="LEGACY">Nur Altbestand</option>
               <option value="ALL">Alle</option>
             </select>
 
@@ -1251,6 +1254,8 @@ function Dashboard({ issues, onRefresh }) {
                           <a href={row.returnPdfWebUrl} target="_blank" rel="noreferrer">
                             öffnen
                           </a>
+                        ) : row.hasReturn ? (
+                          <span className="tag">Altbestand</span>
                         ) : (
                           "–"
                         )}
@@ -1266,6 +1271,7 @@ function Dashboard({ issues, onRefresh }) {
     </div>
   );
 }
+
 
 
 function isoDate() {
@@ -1738,6 +1744,9 @@ alert("✅ Ausgabe gespeichert & PDF in OneDrive abgelegt.");
 // -----------------------------------------------------------
 function ReturnForm({ issues, onIssuesUpdated }) {
   const [search, setSearch] = useState("");
+  const [department, setDepartment] = useState("");
+  const [system, setSystem] = useState("");
+  const [status, setStatus] = useState("OPEN"); // OPEN | LEGACY | ALL
 
   // ✅ Rückgabe-Unterschriften
   const [returnIssuedBySignature, setReturnIssuedBySignature] = useState(null);
@@ -1760,18 +1769,44 @@ function ReturnForm({ issues, onIssuesUpdated }) {
     (i) => !!i.hasReturn && !i.returnPdfWebUrl && !i.returnPdfFileName
   );
 
-  const filterBySearch = (arr) => {
-    const term = (search || "").toLowerCase();
-    if (!term) return arr;
-    return (arr || []).filter(
-      (i) =>
-        (i.employeeName || "").toLowerCase().includes(term) ||
-        (i.personnelNumber || "").toLowerCase().includes(term)
-    );
-  };
+  const isLegacy = (i) => !!i.hasReturn && !i.returnPdfWebUrl && !i.returnPdfFileName;
 
-  const filteredOpen = filterBySearch(openIssues);
-  const filteredLegacy = filterBySearch(legacyReturned);
+  // ✅ Basisliste je nach Status
+  const baseList =
+    status === "OPEN"
+      ? openIssues
+      : status === "LEGACY"
+      ? legacyReturned
+      : [...openIssues, ...legacyReturned];
+
+  // ✅ Dropdown-Optionen aus aktueller Basisliste
+  const departments = Array.from(
+    new Set(baseList.map((i) => (i.department || "").trim()).filter(Boolean))
+  );
+
+  const systems = Array.from(new Set(baseList.map((i) => (i.system || "").trim()).filter(Boolean)));
+
+  // ✅ gemeinsame Filterung (Suche + Abteilung + System)
+  const filtered = (baseList || []).filter((i) => {
+    let match = true;
+    const term = (search || "").toLowerCase();
+
+    if (term) {
+      match =
+        (i.employeeName || "").toLowerCase().includes(term) ||
+        (i.personnelNumber || "").toLowerCase().includes(term);
+    }
+
+    if (match && department) {
+      match = (i.department || "").trim() === department;
+    }
+
+    if (match && system) {
+      match = (i.system || "").trim() === system;
+    }
+
+    return match;
+  });
 
   const resetReturnPads = () => {
     setReturnIssuedBySignature(null);
@@ -1848,6 +1883,13 @@ function ReturnForm({ issues, onIssuesUpdated }) {
     }
   };
 
+  const emptyText =
+    status === "OPEN"
+      ? "Keine offenen Ausgaben mit diesen Filtern gefunden."
+      : status === "LEGACY"
+      ? "Kein Altbestand mit diesen Filtern gefunden."
+      : "Keine offenen/Altbestand-Vorgänge mit diesen Filtern gefunden.";
+
   return (
     <div className="card">
       <div className="section-title">Rückgabe erfassen</div>
@@ -1863,38 +1905,58 @@ function ReturnForm({ issues, onIssuesUpdated }) {
           onChange={(e) => setSearch(e.target.value)}
         />
 
+        <select className="select" value={department} onChange={(e) => setDepartment(e.target.value)}>
+          <option value="">Alle Abteilungen</option>
+          {departments.map((d) => (
+            <option key={d} value={d}>
+              {d}
+            </option>
+          ))}
+        </select>
+
+        <select className="select" value={system} onChange={(e) => setSystem(e.target.value)}>
+          <option value="">Alle Schließsysteme</option>
+          {systems.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+
+        {/* ✅ Statusfilter statt “2 Tabellen unten” */}
+        <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="OPEN">Offen</option>
+          <option value="LEGACY">Altbestand</option>
+          <option value="ALL">Alle</option>
+        </select>
+
         <span className="chip">
-          {filteredOpen.length} offen • {filteredLegacy.length} Altbestand
+          {openIssues.length} offen • {legacyReturned.length} Altbestand • {filtered.length} angezeigt
         </span>
       </div>
 
       <div className="table-wrapper">
-        {/* ✅ OFFENE AUSGABEN */}
-        <div style={{ marginBottom: 18 }}>
-          <div className="section-sub" style={{ marginBottom: 8 }}>
-            <b>Offene Ausgaben</b> (noch nicht zurückgegeben)
-          </div>
-
-          {filteredOpen.length === 0 ? (
-            <div className="empty-state">
-              Keine offenen Schlüssel-Ausgaben mit diesen Suchkriterien.
-            </div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Mitarbeiter</th>
-                  <th>Personalnr.</th>
-                  <th>Abteilung</th>
-                  <th>Schlüssel / System</th>
-                  <th>Weitere Schlüssel</th>
-                  <th>Ausgabedatum</th>
-                  <th>Aktion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredOpen.map((i) => (
-                  <tr key={i.id}>
+        {filtered.length === 0 ? (
+          <div className="empty-state">{emptyText}</div>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th>Mitarbeiter</th>
+                <th>Personalnr.</th>
+                <th>Abteilung</th>
+                <th>Schlüssel / System</th>
+                <th>Weitere Schlüssel</th>
+                <th>Ausgabedatum</th>
+                <th>Status</th>
+                <th>Aktion</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((i) => {
+                const legacy = isLegacy(i);
+                return (
+                  <tr key={(legacy ? "legacy-" : "") + i.id}>
                     <td>{i.employeeName}</td>
                     <td>{i.personnelNumber || "–"}</td>
                     <td>{(i.department || "").trim()}</td>
@@ -1902,52 +1964,7 @@ function ReturnForm({ issues, onIssuesUpdated }) {
                     <td>{i.otherKeys || "–"}</td>
                     <td>{formatDateDE(i.issueDate)}</td>
                     <td>
-                      <button
-                        type="button"
-                        className={"btn " + (activeIssue?.id === i.id ? "btn-primary" : "")}
-                        onClick={() => handleStartReturn(i)}
-                      >
-                        {activeIssue?.id === i.id ? "Rückgabe läuft…" : "Rückgabe erfassen"}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-
-        {/* ✅ ALT-BESTAND */}
-        <div>
-          <div className="section-sub" style={{ marginBottom: 8 }}>
-            <b>Altbestand</b> (Excel sagt „zurückgegeben“, aber kein Rückgabe-PDF vorhanden)
-          </div>
-
-          {filteredLegacy.length === 0 ? (
-            <div className="empty-state">Kein Altbestand ohne Rückgabe-PDF gefunden.</div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Mitarbeiter</th>
-                  <th>Personalnr.</th>
-                  <th>Abteilung</th>
-                  <th>Schlüssel / System</th>
-                  <th>Ausgabedatum</th>
-                  <th>Status</th>
-                  <th>Aktion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLegacy.map((i) => (
-                  <tr key={"legacy-" + i.id}>
-                    <td>{i.employeeName}</td>
-                    <td>{i.personnelNumber || "–"}</td>
-                    <td>{(i.department || "").trim()}</td>
-                    <td>{i.system || "n/a"}</td>
-                    <td>{formatDateDE(i.issueDate)}</td>
-                    <td>
-                      <span className="tag">Altbestand</span>
+                      <span className="tag">{legacy ? "Altbestand" : "Offen"}</span>
                     </td>
                     <td>
                       <button
@@ -1955,15 +1972,21 @@ function ReturnForm({ issues, onIssuesUpdated }) {
                         className={"btn " + (activeIssue?.id === i.id ? "btn-primary" : "")}
                         onClick={() => handleStartReturn(i)}
                       >
-                        {activeIssue?.id === i.id ? "Protokoll läuft…" : "Nachträglich protokollieren"}
+                        {activeIssue?.id === i.id
+                          ? legacy
+                            ? "Protokoll läuft…"
+                            : "Rückgabe läuft…"
+                          : legacy
+                          ? "Nachträglich protokollieren"
+                          : "Rückgabe erfassen"}
                       </button>
                     </td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* ✅ Rückgabe-Dialog */}
@@ -2004,6 +2027,7 @@ function ReturnForm({ issues, onIssuesUpdated }) {
     </div>
   );
 }
+
 
 
 

@@ -1026,218 +1026,216 @@ function Dashboard({ issues, onRefresh }) {
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [system, setSystem] = useState("");
-const [status, setStatus] = useState("OPEN"); // OPEN | RETURNED | ALL
+  const [status, setStatus] = useState("OPEN"); // OPEN | RETURNED | ALL
 
-const resetFilters = () => {
-  setSearch("");
-  setDepartment("");
-  setSystem("");
-  setStatus("ALL");
-};
-
+  // ✅ NUR EINMAL definieren
+  const resetFilters = () => {
+    setSearch("");
+    setDepartment("");
+    setSystem("");
+    setStatus("ALL");
+  };
 
   // ✅ Stats weiterhin nur offene
-const outstanding = (issues || []).filter((i) => !i.hasReturn);
+  const outstanding = (issues || []).filter((i) => !i.hasReturn);
 
-// ✅ Sichtbarkeit je nach Status
-const visibleIssues = (issues || []).filter((i) => {
-  if (status === "OPEN") return !i.hasReturn;
-  if (status === "RETURNED") return !!i.hasReturn;
-  return true; // ALL
-});
+  // ✅ Sichtbarkeit je nach Status
+  const visibleIssues = (issues || []).filter((i) => {
+    if (status === "OPEN") return !i.hasReturn;
+    if (status === "RETURNED") return !!i.hasReturn;
+    return true; // ALL
+  });
 
-const departments = Array.from(
-  new Set(visibleIssues.map((i) => (i.department || "").trim()).filter(Boolean))
-);
+  const departments = Array.from(
+    new Set(visibleIssues.map((i) => (i.department || "").trim()).filter(Boolean))
+  );
 
-const systems = Array.from(
-  new Set(visibleIssues.map((i) => (i.system || "").trim()).filter(Boolean))
-);
+  const systems = Array.from(
+    new Set(visibleIssues.map((i) => (i.system || "").trim()).filter(Boolean))
+  );
 
-const filtered = visibleIssues.filter((i) => {
-  let match = true;
-  const term = (search || "").toLowerCase();
+  const filtered = visibleIssues.filter((i) => {
+    let match = true;
+    const term = (search || "").toLowerCase();
 
-  if (term) {
-    match =
-      (i.employeeName || "").toLowerCase().includes(term) ||
-      (i.personnelNumber || "").toLowerCase().includes(term);
-  }
+    if (term) {
+      match =
+        (i.employeeName || "").toLowerCase().includes(term) ||
+        (i.personnelNumber || "").toLowerCase().includes(term);
+    }
 
-  if (match && department) {
-    match = (i.department || "").trim() === department;
-  }
+    if (match && department) {
+      match = (i.department || "").trim() === department;
+    }
 
-  if (match && system) {
-    match = (i.system || "").trim() === system;
-  }
+    if (match && system) {
+      match = (i.system || "").trim() === system;
+    }
 
-  return match;
-});
+    return match;
+  });
 
-// ✅ Reset setzt jetzt auch den Status zurück
-const resetFilters = () => {
-  setSearch("");
-  setDepartment("");
-  setSystem("");
-  setStatus("ALL");
-};
-
-const emptyText =
-  status === "OPEN"
-    ? "Keine offenen Schlüssel mit diesen Filtern gefunden."
-    : status === "RETURNED"
+  const emptyText =
+    status === "OPEN"
+      ? "Keine offenen Schlüssel mit diesen Filtern gefunden."
+      : status === "RETURNED"
       ? "Keine zurückgegebenen Vorgänge mit diesen Filtern gefunden."
       : "Keine Vorgänge mit diesen Filtern gefunden.";
 
-return (
-  <div className="card">
-    <div className="dashboard-header">
-      <div>
-        <div className="section-title">Dashboard</div>
-        <div className="section-sub">
-          Übersicht über Schlüssel-Ausgaben und Rückgaben (mit PDFs).
+  return (
+    <div className="card">
+      <div className="dashboard-header">
+        <div>
+          <div className="section-title">Dashboard</div>
+          <div className="section-sub">
+            Übersicht über Schlüssel-Ausgaben und Rückgaben (mit PDFs).
+          </div>
+        </div>
+
+        {/* ✅ Buttons oben rechts */}
+        <div className="dashboard-actions" style={{ display: "flex", gap: 10 }}>
+          <button type="button" className="btn" onClick={resetFilters}>
+            Alle anzeigen
+          </button>
+
+          <button
+            type="button"
+            className="btn"
+            onClick={() => (typeof onRefresh === "function" ? onRefresh() : null)}
+          >
+            Aktualisieren
+          </button>
+
+          <button type="button" className="btn" onClick={() => setCollapsed(!collapsed)}>
+            <span className="btn-icon">{collapsed ? "▸" : "▾"}</span>
+            Dashboard {collapsed ? "anzeigen" : "ausblenden"}
+          </button>
         </div>
       </div>
 
-      {/* ✅ Buttons oben rechts */}
-      <div className="dashboard-actions" style={{ display: "flex", gap: 10 }}>
-        <button type="button" className="btn" onClick={resetFilters}>
-          Alle anzeigen
-        </button>
+      {!collapsed && (
+        <>
+          <div className="dashboard-cards">
+            <div className="stat-card">
+              <div className="stat-label">Aktiv ausgegebene Schlüssel</div>
+              <div className="stat-value">{outstanding.length}</div>
+              <div className="stat-sub">ohne registrierte Rückgabe</div>
+            </div>
 
-        <button
-          type="button"
-          className="btn"
-          onClick={() => (typeof onRefresh === "function" ? onRefresh() : null)}
-        >
-          Aktualisieren
-        </button>
+            <div className="stat-card">
+              <div className="stat-label">Abteilungen</div>
+              <div className="stat-value">{departments.length}</div>
+              <div className="stat-sub">in aktueller Ansicht</div>
+            </div>
 
-        <button type="button" className="btn" onClick={() => setCollapsed(!collapsed)}>
-          <span className="btn-icon">{collapsed ? "▸" : "▾"}</span>
-          Dashboard {collapsed ? "anzeigen" : "ausblenden"}
-        </button>
-      </div>
-    </div>
-
-    {!collapsed && (
-      <>
-        <div className="dashboard-cards">
-          <div className="stat-card">
-            <div className="stat-label">Aktiv ausgegebene Schlüssel</div>
-            <div className="stat-value">{outstanding.length}</div>
-            <div className="stat-sub">ohne registrierte Rückgabe</div>
+            <div className="stat-card">
+              <div className="stat-label">Schließsysteme</div>
+              <div className="stat-value">{systems.length}</div>
+              <div className="stat-sub">in aktueller Ansicht</div>
+            </div>
           </div>
 
-          <div className="stat-card">
-            <div className="stat-label">Abteilungen</div>
-            <div className="stat-value">{departments.length}</div>
-            <div className="stat-sub">in aktueller Ansicht</div>
+          <div className="filters-row">
+            <input
+              className="input"
+              placeholder="Suche nach Name oder Personalnummer…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+
+            <select
+              className="select"
+              value={department}
+              onChange={(e) => setDepartment(e.target.value)}
+            >
+              <option value="">Alle Abteilungen</option>
+              {departments.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+
+            <select className="select" value={system} onChange={(e) => setSystem(e.target.value)}>
+              <option value="">Alle Schließsysteme</option>
+              {systems.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+
+            {/* ✅ NEU: Status-Filter */}
+            <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
+              <option value="OPEN">Nur offene</option>
+              <option value="RETURNED">Nur zurückgegeben</option>
+              <option value="ALL">Alle</option>
+            </select>
+
+            <span className="chip">{filtered.length} Einträge gefunden</span>
           </div>
 
-          <div className="stat-card">
-            <div className="stat-label">Schließsysteme</div>
-            <div className="stat-value">{systems.length}</div>
-            <div className="stat-sub">in aktueller Ansicht</div>
-          </div>
-        </div>
-
-        <div className="filters-row">
-          <input
-            className="input"
-            placeholder="Suche nach Name oder Personalnummer…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-
-          <select className="select" value={department} onChange={(e) => setDepartment(e.target.value)}>
-            <option value="">Alle Abteilungen</option>
-            {departments.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-
-          <select className="select" value={system} onChange={(e) => setSystem(e.target.value)}>
-            <option value="">Alle Schließsysteme</option>
-            {systems.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
-
-          {/* ✅ NEU: Status-Filter */}
-          <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="OPEN">Nur offene</option>
-            <option value="RETURNED">Nur zurückgegeben</option>
-            <option value="ALL">Alle</option>
-          </select>
-
-          <span className="chip">{filtered.length} Einträge gefunden</span>
-        </div>
-
-        <div className="table-wrapper">
-          {filtered.length === 0 ? (
-            <div className="empty-state">{emptyText}</div>
-          ) : (
-            <table>
-              <thead>
-                <tr>
-                  <th>Mitarbeiter</th>
-                  <th>Personalnr.</th>
-                  <th>Abteilung</th>
-                  <th>Schließsystem</th>
-                  <th>Weitere Schlüssel</th>
-                  <th>Ausgabedatum</th>
-                  <th>Ausgabe-PDF</th>
-                  <th>Rückgabe-PDF</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {filtered.map((row) => (
-                  <tr key={row.id}>
-                    <td>{row.employeeName}</td>
-                    <td>{row.personnelNumber || "–"}</td>
-                    <td>{(row.department || "").trim()}</td>
-                    <td>
-                      <span className="tag">{row.system || "n/a"}</span>
-                    </td>
-                    <td>{row.otherKeys || "–"}</td>
-                    <td>{formatDateDE(row.issueDate)}</td>
-
-                    <td>
-                      {row.pdfWebUrl ? (
-                        <a href={row.pdfWebUrl} target="_blank" rel="noreferrer">
-                          öffnen
-                        </a>
-                      ) : (
-                        "–"
-                      )}
-                    </td>
-
-                    <td>
-                      {row.returnPdfWebUrl ? (
-                        <a href={row.returnPdfWebUrl} target="_blank" rel="noreferrer">
-                          öffnen
-                        </a>
-                      ) : (
-                        "–"
-                      )}
-                    </td>
+          <div className="table-wrapper">
+            {filtered.length === 0 ? (
+              <div className="empty-state">{emptyText}</div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Mitarbeiter</th>
+                    <th>Personalnr.</th>
+                    <th>Abteilung</th>
+                    <th>Schließsystem</th>
+                    <th>Weitere Schlüssel</th>
+                    <th>Ausgabedatum</th>
+                    <th>Ausgabe-PDF</th>
+                    <th>Rückgabe-PDF</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </>
-    )}
-  </div>
-);
+                </thead>
+
+                <tbody>
+                  {filtered.map((row) => (
+                    <tr key={row.id}>
+                      <td>{row.employeeName}</td>
+                      <td>{row.personnelNumber || "–"}</td>
+                      <td>{(row.department || "").trim()}</td>
+                      <td>
+                        <span className="tag">{row.system || "n/a"}</span>
+                      </td>
+                      <td>{row.otherKeys || "–"}</td>
+                      <td>{formatDateDE(row.issueDate)}</td>
+
+                      <td>
+                        {row.pdfWebUrl ? (
+                          <a href={row.pdfWebUrl} target="_blank" rel="noreferrer">
+                            öffnen
+                          </a>
+                        ) : (
+                          "–"
+                        )}
+                      </td>
+
+                      <td>
+                        {row.returnPdfWebUrl ? (
+                          <a href={row.returnPdfWebUrl} target="_blank" rel="noreferrer">
+                            öffnen
+                          </a>
+                        ) : (
+                          "–"
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 
 function isoDate() {
   return new Date().toISOString().slice(0, 10);

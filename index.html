@@ -759,7 +759,8 @@ const rangeUrl =
     const rueckgabe = value(idxRueckgabe);
 
     // Datum kann bei Graph manchmal als String/Serial kommen – wir lassen es erstmal so durch
-    const issueDate = dateVal || null;
+   const issueDate = excelSerialToIsoDate(dateVal);
+
 
     const hasReturn = !!rueckgabe;
     const returnInfo = rueckgabe || null;
@@ -785,7 +786,29 @@ const rangeUrl =
   return issues;
 }
 
+function excelSerialToIsoDate(v) {
+  if (!v) return null;
 
+  // Wenn es schon ein normales Datum ist → so lassen
+  if (typeof v === "string" && v.includes("-")) return v;
+
+  const num = Number(v);
+  if (!isFinite(num)) return String(v);
+
+  // Excel epoch: 1899-12-30
+  const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+  const ms = num * 24 * 60 * 60 * 1000;
+  const d = new Date(excelEpoch.getTime() + ms);
+
+  return d.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+function formatDateDE(d) {
+  if (!d) return "–";
+  const dt = new Date(d);
+  if (isNaN(dt)) return String(d);
+  return dt.toLocaleDateString("de-DE");
+}
 
 
     function buildKeysFromIssues(issues) {
@@ -1140,7 +1163,8 @@ const issues = Array.from(map.values());
         <td>{(row.department || "").trim()}</td>
         <td><span className="tag">{row.system || "n/a"}</span></td>
         <td>{row.otherKeys || "–"}</td>
-        <td>{row.issueDate}</td>
+       <td>{formatDateDE(row.issueDate)}</td>
+
 
         {/* ✅ Ausgabe-PDF (webUrl) */}
         <td>

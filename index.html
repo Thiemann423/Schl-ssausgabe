@@ -586,6 +586,41 @@ async function findItemByName(graphClient, fileName) {
 }
 
 
+async function getOrCreatePersonalTxt(graphClient) {
+  try {
+    const item = await findItemByName(graphClient, "Personal.txt");
+    const text = await graphClient.get(`/me/drive/items/${item.id}/content`, "text");
+    return { id: item.id, text };
+  } catch {
+    // Datei existiert noch nicht → neu anlegen
+    const empty = "";
+    const res = await graphClient.put(
+      `/me/drive/root:/Personal.txt:/content`,
+      empty,
+      "text/plain"
+    );
+    return { id: res.id, text: "" };
+  }
+}
+
+async function appendEmployeeToPersonalTxt(graphClient, personnelNumber, fullName) {
+  const { id, text } = await getOrCreatePersonalTxt(graphClient);
+
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+  // Doppelten Eintrag verhindern
+  const exists = lines.some(l => l.startsWith(personnelNumber + ";"));
+  if (exists) throw new Error("Personalnummer existiert bereits in Personal.txt");
+
+  const newLine = `${personnelNumber};${fullName}`;
+  const updated = [...lines, newLine].join("\n");
+
+  await graphClient.put(
+    `/me/drive/items/${id}/content`,
+    updated,
+    "text/plain"
+  );
+}
 
 
 async function loadEmployeesFromPersonalTxt(graphClient) {
@@ -618,6 +653,77 @@ async function loadEmployeesFromPersonalTxt(graphClient) {
   }
 
   return employees;
+}
+function normalizePn(pn) {
+  return String(pn || "").trim();
+}
+function normalizeName(name) {
+  return String(name || "").trim();
+}
+
+function parsePersonalTxt(contentText) {
+  const lines = String(contentText || "").split(/\r?\n/);
+  const items = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    const parts = trimmed.split(";");
+    if (parts.length < 2) continue;
+    items.push({
+      personnelNumber: normalizePn(parts[0]),
+      fullName: normalizeName(parts[1]),
+    });
+  }
+  return items;
+}
+
+function buildPersonalTxt(items) {
+  // Sauber + stabil speichern
+  return (items || [])
+    .map((x) => `${normalizePn(x.personnelNumber)};${normalizeName(x.fullName)}`)
+    .join("\n") + "\n";
+}
+
+// Lädt Personal.txt als "Item" + Inhalt
+async function getPersonalTxtItemAndContent(graphClient) {
+  const item = await findItemByName(graphClient, "Personal.txt");
+  const content = await graphClient.get(`/me/drive/items/${item.id}/content`, "text");
+  return { item, content };
+}
+
+// Speichert Personal.txt zurück (über item.id, ist am zuverlässigsten)
+async function savePersonalTxtByItemId(graphClient, itemId, text) {
+  await graphClient.put(
+    `/me/drive/items/${itemId}/content`,
+    new Blob([text], { type: "text/plain; charset=utf-8" }),
+    "text/plain"
+  );
+}
+
+// ✅ Fügt einen Mitarbeiter hinzu (mit Duplikat-Schutz)
+async function appendEmployeeToPersonalTxt(graphClient, { personnelNumber, fullName }) {
+  const pn = normalizePn(personnelNumber);
+  const name = normalizeName(fullName);
+
+  if (!pn || !name) throw new Error("Personalnummer und Name sind Pflicht.");
+
+  const { item, content } = await getPersonalTxtItemAndContent(graphClient);
+  const list = parsePersonalTxt(content);
+
+  // Duplikate vermeiden (PN ist das stärkste Kriterium)
+  if (list.some((x) => normalizePn(x.personnelNumber) === pn)) {
+    throw new Error("Personalnummer existiert bereits in Personal.txt.");
+  }
+
+  // Anfügen + optional sortieren
+  list.push({ personnelNumber: pn, fullName: name });
+  // optional: sortiert nach Personalnummer
+  list.sort((a, b) => String(a.personnelNumber).localeCompare(String(b.personnelNumber)));
+
+  const newText = buildPersonalTxt(list);
+  await savePersonalTxtByItemId(graphClient, item.id, newText);
+
+  return list; // zurückgeben als “neuer Stand”
 }
 
 
@@ -1611,6 +1717,80 @@ const handleReturn = async (issue) => {
   );
 }
 
+function EmployeeForm({ onEmployeeCreated }) {
+  const [personnelNumber, setPersonnelNumber] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!personnelNumber || !fullName) {
+      alert("Bitte Personalnummer und Name eingeben.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const { graphClient } = await getGraphClient();
+
+      // 🔥 In Personal.txt schreiben
+      await appendEmployeeToPersonalTxt(graphClient, personnelNumber.trim(), fullName.trim());
+
+      alert("✅ Mitarbeiter wurde in Personal.txt gespeichert.");
+
+      // Formular leeren
+      setPersonnelNumber("");
+      setFullName("");
+
+      // 🔁 App neu laden lassen (Employees, Keys, Issues)
+      if (typeof onEmployeeCreated === "function") {
+        await onEmployeeCreated();
+      }
+    } catch (err) {
+      console.error(err);
+      alert("❌ Fehler: " + (err?.message || String(err)));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="card">
+      <div className="section-title">Mitarbeiter verwalten</div>
+      <div className="section-sub">
+        Neue Mitarbeiter werden direkt in <b>Personal.txt</b> in OneDrive gespeichert.
+      </div>
+
+      <form onSubmit={handleSubmit} style={{ maxWidth: 420 }}>
+        <div className="form-group">
+          <label className="form-label">Personalnummer</label>
+          <input
+            className="input"
+            value={personnelNumber}
+            onChange={(e) => setPersonnelNumber(e.target.value)}
+            placeholder="z. B. 031046299"
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Vollständiger Name</label>
+          <input
+            className="input"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="z. B. Max Mustermann"
+          />
+        </div>
+
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          {saving ? "Speichern…" : "Mitarbeiter anlegen"}
+        </button>
+      </form>
+    </div>
+  );
+}
 
 
     // -----------------------------------------------------------
@@ -1773,10 +1953,19 @@ useEffect(() => {
             <span className="btn-icon">↩</span>
             Rückgabe
           </button>
+          <button
+  className={"tab-btn " + (activeTab === "employees" ? "active" : "")}
+  onClick={() => setActiveTab("employees")}
+  type="button"
+>
+  <span className="btn-icon">👤</span>
+  Mitarbeiter
+</button>
+
         </div>
       </div>
 
-      {activeTab === "dashboard" && <Dashboard issues={issuesData} />}
+{activeTab === "dashboard" && <Dashboard issues={issuesData} />}
 
 {activeTab === "issue" && (
   <IssueForm
@@ -1792,6 +1981,24 @@ useEffect(() => {
     onIssuesUpdated={(arr) => setIssues((prev) => mergeIssuesById(prev, arr))}
   />
 )}
+
+{activeTab === "employees" && (
+  <EmployeeForm
+    onEmployeeCreated={async () => {
+      try {
+        // ✅ nach erfolgreichem Speichern in Personal.txt: alles neu aus OneDrive laden
+        const data = await fetchOneDriveData();
+        setEmployees(data.employees || []);
+        setKeys(data.keys || []);
+        setIssues(data.issues || []);
+      } catch (e) {
+        console.error(e);
+        alert("❌ Neuladen fehlgeschlagen: " + (e?.message || String(e)));
+      }
+    }}
+  />
+)}
+
 
 
 

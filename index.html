@@ -742,52 +742,51 @@ const rangeUrl =
   const idxDatum = indexOf("Datum");
   const idxRueckgabe = indexOf("Rückgabe");
 
-  const issues = [];
-  let i = 1;
+const issues = [];
 
-  for (const row of dataRows) {
-    if (!row || row.length === 0) continue;
+for (const row of dataRows) {
+  if (!row || row.length === 0) continue;
 
-    const value = (idx) =>
-      idx >= 0 && idx < row.length && row[idx] != null && row[idx] !== ""
-        ? String(row[idx]).trim()
-        : null;
+  const value = (idx) =>
+    idx >= 0 && idx < row.length && row[idx] != null && row[idx] !== ""
+      ? String(row[idx]).trim()
+      : null;
 
-    const department = value(idxAbteilung);
-    const pnRaw = value(idxPersonalnr);
-    const name = value(idxName);
-    const system = value(idxSystem);
-    const otherKeys = value(idxWeitere);
-    const dateVal = value(idxDatum);
-    const rueckgabe = value(idxRueckgabe);
+  const department = value(idxAbteilung);
+  const pnRaw = value(idxPersonalnr);
+  const name = value(idxName);
+  const system = value(idxSystem);
+  const otherKeys = value(idxWeitere);
+  const dateVal = value(idxDatum);
+  const rueckgabe = value(idxRueckgabe);
 
-    // Datum kann bei Graph manchmal als String/Serial kommen – wir lassen es erstmal so durch
-   const issueDate = excelSerialToIsoDate(dateVal);
+  const issueDate = excelSerialToIsoDate(dateVal);
 
+  const hasReturn = !!rueckgabe;
+  const returnInfo = rueckgabe || null;
 
-    const hasReturn = !!rueckgabe;
-    const returnInfo = rueckgabe || null;
-
-    let personnelNumber = pnRaw;
-    if (pnRaw && /^\d+\.0$/.test(pnRaw)) {
-      personnelNumber = String(parseInt(pnRaw, 10));
-    }
-
-    issues.push({
-      id: i++,
-      employeeName: name,
-      personnelNumber,
-      department,
-      system,
-      otherKeys,
-      issueDate,
-      hasReturn,
-      returnInfo,
-      id: String(i++)
-    });
+  let personnelNumber = pnRaw;
+  if (pnRaw && /^\d+\.0$/.test(pnRaw)) {
+    personnelNumber = String(parseInt(pnRaw, 10));
   }
 
-  return issues;
+  // ✅ STABILE ID aus Inhalt (damit Rückgabe auch bei alten Excel-Daten klappt)
+  const stableId = `${personnelNumber || ""}_${issueDate || ""}_${system || ""}`;
+
+  issues.push({
+    id: stableId,
+    employeeName: name,
+    personnelNumber,
+    department,
+    system,
+    otherKeys,
+    issueDate,
+    hasReturn,
+    returnInfo,
+  });
+}
+
+return issues;
 }
 
 function excelSerialToIsoDate(v) {
@@ -883,21 +882,15 @@ async function fetchOneDriveData() {
   const employees = mergeEmployees([...employeesFromTxt], issuesFromExcel);
   const keys = buildKeysFromIssues(issuesFromExcel);
 
-  // ✅ Issues kommen aus OneDrive JSON (Source of Truth)
+// ✅ Issues kommen aus OneDrive JSON (Source of Truth)
 const folder = "SchluesselAusgabe";
 const jsonIssues = await getOrCreateIssuesJson(graphClient, folder);
 
-// Excel + JSON zusammenführen (JSON überschreibt Excel bei gleicher id)
-const map = new Map();
-
-// Excel + JSON zusammenführen (JSON überschreibt Excel bei gleicher id)
+// ✅ Excel + JSON zusammenführen (JSON überschreibt Excel bei gleicher id)
 const map = new Map();
 
 const makeId = (i) =>
-  String(
-    i.id ??
-      `${i.personnelNumber || ""}_${i.issueDate || ""}_${i.system || ""}`
-  );
+  String(i.id ?? `${i.personnelNumber || ""}_${i.issueDate || ""}_${i.system || ""}`);
 
 // 1) erst Excel rein
 (issuesFromExcel || []).forEach((i) => {
@@ -905,7 +898,7 @@ const makeId = (i) =>
   map.set(id, { ...i, id });
 });
 
-// 2) dann JSON drüber (hatReturn etc. gewinnt)
+// 2) dann JSON drüber
 (jsonIssues || []).forEach((i) => {
   const id = makeId(i);
   map.set(id, { ...map.get(id), ...i, id });
@@ -913,10 +906,8 @@ const makeId = (i) =>
 
 const issues = Array.from(map.values());
 
+return { employees, keys, issues, account };
 
-
-  return { employees, keys, issues, account };
-}
 
 
     // -----------------------------------------------------------

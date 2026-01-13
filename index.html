@@ -459,8 +459,9 @@ const msalConfig = {
 };
 
 const loginRequest = {
-  scopes: ["User.Read", "Files.ReadWrite"],
+  scopes: ["User.Read", "Files.ReadWrite.All"],
 };
+
 
 
 const msalInstance = new msal.PublicClientApplication(msalConfig);

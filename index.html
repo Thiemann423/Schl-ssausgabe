@@ -574,19 +574,56 @@ function mergeIssuesById(prevIssues, updatedJsonIssues) {
 function encodePath(p) {
   return p.split("/").map(encodeURIComponent).join("/");
 }
+// ====== OneDrive Shared Folder Context ======
 
-    function oneDrivePdfContentUrl(folder, fileName) {
+// HIER den Freigabe-Link aus OneDrive rein
+const SHARED_FOLDER_URL = "HIER DEINEN LINK EINFÜGEN";
+
+function toShareId(shareUrl) {
+  const base64 = btoa(unescape(encodeURIComponent(shareUrl)));
+  const base64url = base64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  return `u!${base64url}`;
+}
+
+let sharedCtxPromise = null;
+
+async function getSharedContext(graphClient) {
+  if (!sharedCtxPromise) {
+    sharedCtxPromise = (async () => {
+      const shareId = toShareId(SHARED_FOLDER_URL);
+      const folderItem = await graphClient.get(`/shares/${shareId}/driveItem`);
+      return {
+        driveId: folderItem.parentReference.driveId,
+        folderId: folderItem.id,
+        folderItem,
+      };
+    })();
+  }
+  return sharedCtxPromise;
+}
+
+async function oneDrivePdfContentUrl(graphClient, fileName) {
   if (!fileName) return null;
-  return `https://graph.microsoft.com/v1.0/me/drive/root:/${encodeURIComponent(folder)}/${encodeURIComponent(fileName)}:/content`;
+  const { driveId, folderId } = await getSharedContext(graphClient);
+  return `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${folderId}:/${encodeURIComponent(
+    fileName
+  )}:/content`;
 }
 
 async function findItemByName(graphClient, fileName) {
+  const { driveId, folderId } = await getSharedContext(graphClient);
+
+  // Suche NUR innerhalb des geteilten Ordners
   const q = encodeURIComponent(fileName);
-  const res = await graphClient.get(`/me/drive/root/search(q='${q}')`);
+  const res = await graphClient.get(
+    `/drives/${driveId}/items/${folderId}/search(q='${q}')`
+  );
+
   const hit = res?.value?.[0];
-  if (!hit) throw new Error(`Datei nicht gefunden: ${fileName} (Drive search)`);
+  if (!hit) throw new Error(`Datei nicht gefunden: ${fileName} (Shared folder search)`);
   return hit;
 }
+
 
 
 async function getOrCreatePersonalTxt(graphClient) {
@@ -672,19 +709,21 @@ function buildPersonalTxt(items) {
 
 // Lädt Personal.txt als "Item" + Inhalt
 async function getPersonalTxtItemAndContent(graphClient) {
+  const { driveId } = await getSharedContext(graphClient);
   const item = await findItemByName(graphClient, "Personal.txt");
-  const content = await graphClient.get(`/me/drive/items/${item.id}/content`, "text");
+  const content = await graphClient.get(`/drives/${driveId}/items/${item.id}/content`, "text");
   return { item, content };
 }
 
-// Speichert Personal.txt zurück (über item.id, ist am zuverlässigsten)
 async function savePersonalTxtByItemId(graphClient, itemId, text) {
+  const { driveId } = await getSharedContext(graphClient);
   await graphClient.put(
-    `/me/drive/items/${itemId}/content`,
+    `/drives/${driveId}/items/${itemId}/content`,
     new Blob([text], { type: "text/plain; charset=utf-8" }),
     "text/plain"
   );
 }
+
 
 // ✅ Fügt einen Mitarbeiter hinzu (mit Duplikat-Schutz)
 async function appendEmployeeToPersonalTxt(graphClient, { personnelNumber, fullName }) {
@@ -714,15 +753,12 @@ async function appendEmployeeToPersonalTxt(graphClient, { personnelNumber, fullN
 
 
 async function loadExcelIssues(graphClient) {
-  // ✅ Excel-Datei per Drive-Suche finden (statt festen Pfad zu raten)
+  const { driveId } = await getSharedContext(graphClient);
   const item = await findItemByName(graphClient, "Schlüssel Schließplan Verteilung Mitarbeiter.xlsx");
+  const sheetName = "Tabelle1";
 
-  const sheetName = "Tabelle1"; // laut deinem Screenshot / Datei
-
-  // usedRange aus der gefundenen Datei holen
-const rangeUrl =
-  `/me/drive/items/${item.id}/workbook/worksheets('${sheetName}')/usedRange(valuesOnly=true)`;
-
+  const rangeUrl =
+    `/drives/${driveId}/items/${item.id}/workbook/worksheets('${sheetName}')/usedRange(valuesOnly=true)`;
 
   const json = await graphClient.get(rangeUrl, "json");
 
@@ -1381,38 +1417,37 @@ async function generateKeyProtocolPdfBlob({
   return doc.output("blob");
 }
 
-async function getOrCreateIssuesJson(graphClient, folder) {
-  const path = `/${folder}/issues.json`;
-  const url = `/me/drive/root:${encodePath(path)}:/content`;
+async function getOrCreateIssuesJson(graphClient) {
+  const { driveId, folderId } = await getSharedContext(graphClient);
+  const url = `/drives/${driveId}/items/${folderId}:/issues.json:/content`;
 
   try {
     const text = await graphClient.get(url, "text");
     const data = JSON.parse(text || "[]");
     return Array.isArray(data) ? data : [];
   } catch (e) {
-    // Wenn Datei noch nicht existiert: erstellen
     const msg = String(e?.message || e);
     const is404 = msg.includes("404") || msg.toLowerCase().includes("itemnotfound");
     if (!is404) throw e;
 
-    const empty = [];
     await graphClient.put(
-      `/me/drive/root:${encodePath(path)}:/content`,
-      new Blob([JSON.stringify(empty, null, 2)], { type: "application/json" }),
+      `/drives/${driveId}/items/${folderId}:/issues.json:/content`,
+      new Blob([JSON.stringify([], null, 2)], { type: "application/json" }),
       "application/json"
     );
-    return empty;
+    return [];
   }
 }
 
-async function saveIssuesJson(graphClient, folder, issuesArray) {
-  const path = `/${folder}/issues.json`;
+async function saveIssuesJson(graphClient, issuesArray) {
+  const { driveId, folderId } = await getSharedContext(graphClient);
   await graphClient.put(
-    `/me/drive/root:${encodePath(path)}:/content`,
+    `/drives/${driveId}/items/${folderId}:/issues.json:/content`,
     new Blob([JSON.stringify(issuesArray, null, 2)], { type: "application/json" }),
     "application/json"
   );
 }
+
 
 async function appendIssueToJson(graphClient, folder, newIssue) {
   const issues = await getOrCreateIssuesJson(graphClient, folder);
@@ -1472,13 +1507,15 @@ async function markReturnInJson(graphClient, folder, issueId, returnFileName, ex
 
 
 
-async function uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob }) {
+async function uploadPdfToOneDrive({ graphClient, fileName, pdfBlob }) {
+  const { driveId, folderId } = await getSharedContext(graphClient);
   return await graphClient.put(
-    `/me/drive/root:/${encodeURIComponent(folder)}/${encodeURIComponent(fileName)}:/content`,
+    `/drives/${driveId}/items/${folderId}:/${encodeURIComponent(fileName)}:/content`,
     pdfBlob,
     "application/pdf"
   );
 }
+
 
 
 
@@ -1569,7 +1606,8 @@ const newIssue = {
   hasReturn: false,
   returnDate: null,
   pdfFileName: fileName,
-  pdfWebUrl: oneDrivePdfContentUrl(folder, fileName),
+ pdfWebUrl: await oneDrivePdfContentUrl(graphClient, fileName),
+
 
 };
 
@@ -1855,7 +1893,8 @@ function ReturnForm({ issues, onIssuesUpdated }) {
       await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
       // 3) WebUrl
-      const returnPdfWebUrl = oneDrivePdfContentUrl(folder, fileName);
+     const returnPdfWebUrl = await oneDrivePdfContentUrl(graphClient, fileName);
+;
 
       // 4) issues.json: Rückgabe markieren
       const updatedIssues = await markReturnInJson(graphClient, folder, activeIssue.id, fileName, {

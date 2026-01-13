@@ -627,18 +627,29 @@ async function findItemByName(graphClient, fileName) {
 
 
 async function getOrCreatePersonalTxt(graphClient) {
+  const { driveId, folderId } = await getSharedContext(graphClient);
+
   try {
+    // 1) Datei im geteilten Ordner finden
     const item = await findItemByName(graphClient, "Personal.txt");
-    const text = await graphClient.get(`/me/drive/items/${item.id}/content`, "text");
+
+    // 2) Inhalt über DEINEN OneDrive-Drive laden
+    const text = await graphClient.get(
+      `/drives/${driveId}/items/${item.id}/content`,
+      "text"
+    );
+
     return { id: item.id, text };
-  } catch {
-    // Datei existiert noch nicht → neu anlegen
+  } catch (e) {
+    // 3) Datei existiert noch nicht → im geteilten Ordner anlegen
     const empty = "";
+
     const res = await graphClient.put(
-      `/me/drive/root:/Personal.txt:/content`,
+      `/drives/${driveId}/items/${folderId}:/Personal.txt:/content`,
       empty,
       "text/plain"
     );
+
     return { id: res.id, text: "" };
   }
 }
@@ -646,13 +657,17 @@ async function getOrCreatePersonalTxt(graphClient) {
 
 
 
+
 async function loadEmployeesFromPersonalTxt(graphClient) {
-  // Datei im OneDrive finden (egal in welchem Unterordner)
+  // 1) Shared OneDrive Kontext (dein Drive + Ordner)
+  const { driveId } = await getSharedContext(graphClient);
+
+  // 2) Datei im geteilten Ordner finden
   const item = await findItemByName(graphClient, "Personal.txt");
 
-  // Inhalt der Datei laden
+  // 3) Inhalt aus DEINEM OneDrive laden (nicht /me)
   const content = await graphClient.get(
-    `/me/drive/items/${item.id}/content`,
+    `/drives/${driveId}/items/${item.id}/content`,
     "text"
   );
 
@@ -677,6 +692,7 @@ async function loadEmployeesFromPersonalTxt(graphClient) {
 
   return employees;
 }
+
 function normalizePn(pn) {
   return String(pn || "").trim();
 }

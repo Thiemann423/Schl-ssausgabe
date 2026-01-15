@@ -999,10 +999,51 @@ const makeId = (i) =>
   map.set(id, { ...map.get(id), ...i, id });
 });
 
-const issues = Array.from(map.values());
+let issues = Array.from(map.values());
+
+// ✅ alte graph.microsoft.com/.../content Links in webUrl umwandeln
+const isGraphContent = (u) =>
+  typeof u === "string" &&
+  u.includes("graph.microsoft.com") &&
+  u.includes("/content");
+
+// nur reparieren wenn wirklich nötig
+let changed = false;
+
+issues = await Promise.all(
+  issues.map(async (i) => {
+    try {
+      // Ausgabe-PDF reparieren
+      if (isGraphContent(i.pdfWebUrl) && i.pdfFileName) {
+        const item = await findItemByName(graphClient, i.pdfFileName);
+        if (item?.webUrl) {
+          i = { ...i, pdfWebUrl: item.webUrl };
+          changed = true;
+        }
+      }
+
+      // Rückgabe-PDF reparieren
+      if (isGraphContent(i.returnPdfWebUrl) && i.returnPdfFileName) {
+        const item = await findItemByName(graphClient, i.returnPdfFileName);
+        if (item?.webUrl) {
+          i = { ...i, returnPdfWebUrl: item.webUrl };
+          changed = true;
+        }
+      }
+    } catch (e) {
+      // wenn Datei nicht gefunden wird: ignorieren
+    }
+    return i;
+  })
+);
+
+// ✅ wenn wir was repariert haben: issues.json einmalig aktualisieren
+if (changed) {
+  await saveIssuesJson(graphClient, issues);
+}
 
 return { employees, keys, issues, account };
-}
+
 
 
     // -----------------------------------------------------------
@@ -1916,16 +1957,21 @@ function ReturnForm({ issues, onIssuesUpdated }) {
         receivedSig: returnReceivedBySignature,
       });
 
-      // 2) Upload nach OneDrive
-      const folder = "SchluesselAusgabe";
-      const pn = activeIssue?.personnelNumber || "unknown";
-      const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
+  // 2) Upload nach OneDrive (NUR EINMAL!)
+const folder = "SchluesselAusgabe";
+const pn = activeIssue?.personnelNumber || "unknown";
+const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
 
-      await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
+const uploadedReturn = await uploadPdfToOneDrive({
+  graphClient,
+  folder,
+  fileName,
+  pdfBlob,
+});
 
-// 3) WebUrl
-const uploadedReturn = await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
+// 3) echte Browser-URL (SharePoint / OneDrive)
 const returnPdfWebUrl = uploadedReturn.webUrl || null;
+
 
 
       // 4) issues.json: Rückgabe markieren

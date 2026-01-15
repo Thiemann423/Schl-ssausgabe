@@ -848,27 +848,26 @@ for (const row of dataRows) {
   // ✅ STABILE ID aus Inhalt (damit Rückgabe auch bei alten Excel-Daten klappt)
   const stableId = `${personnelNumber || ""}_${issueDate || ""}_${system || ""}`;
 
-issues.push({
-  id: stableId,               // ← sehr wichtig: stabiler Schlüssel
-  employeeName: name,
-  personnelNumber,
-  department,
-  system,
-  otherKeys,
-  issueDate,
+for (const sys of systems) {
+  const stableId = `${personnelNumber || ""}_${issueDate || ""}_${sys || ""}`;
 
-  // Excel-Status
-  hasReturn: hasReturn,       // Excel-Rückgabe vorhanden?
-  returnInfo: returnInfo || null,
+  issues.push({
+    id: stableId,
+    employeeName: name,
+    personnelNumber,
+    department,
+    system: sys,
+    otherKeys,
+    issueDate,
+    hasReturn,
+    returnInfo,
+    pdfFileName: null,
+    pdfWebUrl: null,
+    returnPdfFileName: null,
+    returnPdfWebUrl: null,
+  });
+}
 
-  // ⛔ Excel hat KEIN Rückgabe-PDF → das ist Altbestand
-  returnPdfFileName: null,
-  returnPdfWebUrl: null,
-
-  // Ausgabe-PDF gibt es bei Excel ebenfalls nicht
-  pdfFileName: null,
-  pdfWebUrl: null,
-});
 
 }
 

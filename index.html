@@ -829,7 +829,16 @@ for (const row of dataRows) {
   const department = value(idxAbteilung);
   const pnRaw = value(idxPersonalnr);
   const name = value(idxName);
-  const system = value(idxSystem);
+
+  // 🔥 neu: raw aus Excel lesen und splitten
+  const systemRaw = value(idxSystem); // z.B. "HAL 639, HC7"
+  const systemsArr = systemRaw
+    ? String(systemRaw)
+        .split(/[,;/]/)          // trennt bei , ; /
+        .map((s) => s.trim())
+        .filter(Boolean)
+    : [];
+
   const otherKeys = value(idxWeitere);
   const dateVal = value(idxDatum);
   const rueckgabe = value(idxRueckgabe);
@@ -837,7 +846,6 @@ for (const row of dataRows) {
   const issueDate = excelSerialToIsoDate(dateVal);
 
   const hasReturn = !!(rueckgabe && String(rueckgabe).trim());
-
   const returnInfo = rueckgabe || null;
 
   let personnelNumber = pnRaw;
@@ -845,31 +853,33 @@ for (const row of dataRows) {
     personnelNumber = String(parseInt(pnRaw, 10));
   }
 
-  // ✅ STABILE ID aus Inhalt (damit Rückgabe auch bei alten Excel-Daten klappt)
-  const stableId = `${personnelNumber || ""}_${issueDate || ""}_${system || ""}`;
+  // ✅ mindestens eine Zeile erzeugen (auch wenn kein System drin steht)
+  const systemList = systemsArr.length ? systemsArr : [null];
 
-for (const sys of systems) {
-  const stableId = `${personnelNumber || ""}_${issueDate || ""}_${sys || ""}`;
+  for (const sys of systemList) {
+    // ✅ stabile ID je System
+    const stableId = `${personnelNumber || ""}_${issueDate || ""}_${sys || ""}`;
 
-  issues.push({
-    id: stableId,
-    employeeName: name,
-    personnelNumber,
-    department,
-    system: sys,
-    otherKeys,
-    issueDate,
-    hasReturn,
-    returnInfo,
-    pdfFileName: null,
-    pdfWebUrl: null,
-    returnPdfFileName: null,
-    returnPdfWebUrl: null,
-  });
+    issues.push({
+      id: stableId,
+      employeeName: name,
+      personnelNumber,
+      department,
+      system: sys, // <-- pro Zeile ein System
+      otherKeys,
+      issueDate,
+
+      hasReturn,
+      returnInfo,
+
+      pdfFileName: null,
+      pdfWebUrl: null,
+      returnPdfFileName: null,
+      returnPdfWebUrl: null,
+    });
+  }
 }
 
-
-}
 
 return issues;
 }

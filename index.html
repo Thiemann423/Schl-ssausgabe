@@ -1164,6 +1164,22 @@ function Dashboard({ issues, onRefresh }) {
   const [system, setSystem] = useState("");
   const [status, setStatus] = useState("OPEN"); // OPEN | RETURNED | RETURNED_PDF | LEGACY | ALL
 
+  async function openPdfByFileName(fileName) {
+  if (!fileName) return;
+  try {
+    const { graphClient } = await getGraphClient();
+    const item = await findItemByName(graphClient, fileName);
+    if (item?.webUrl) {
+      window.open(item.webUrl, "_blank", "noreferrer");
+    } else {
+      alert("❌ Datei gefunden, aber keine webUrl verfügbar.");
+    }
+  } catch (e) {
+    console.error(e);
+    alert("❌ Öffnen fehlgeschlagen: " + (e?.message || String(e)));
+  }
+}
+
   // ✅ NUR EINMAL definieren
   const resetFilters = () => {
     setSearch("");
@@ -1346,25 +1362,35 @@ function Dashboard({ issues, onRefresh }) {
                       <td>{formatDateDE(row.issueDate)}</td>
 
                       <td>
-                        {row.pdfWebUrl ? (
-                          <a href={row.pdfWebUrl} target="_blank" rel="noreferrer">
-                            öffnen
-                          </a>
-                        ) : (
-                          "–"
-                        )}
+                       {row.pdfFileName ? (
+  <button
+    type="button"
+    className="btn"
+    onClick={() => openPdfByFileName(row.pdfFileName)}
+  >
+    öffnen
+  </button>
+) : (
+  "–"
+)}
+
                       </td>
 
                       <td>
-                        {row.returnPdfWebUrl ? (
-                          <a href={row.returnPdfWebUrl} target="_blank" rel="noreferrer">
-                            öffnen
-                          </a>
-                        ) : row.hasReturn ? (
-                          <span className="tag">Altbestand</span>
-                        ) : (
-                          "–"
-                        )}
+                   {row.returnPdfFileName ? (
+  <button
+    type="button"
+    className="btn"
+    onClick={() => openPdfByFileName(row.returnPdfFileName)}
+  >
+    öffnen
+  </button>
+) : row.hasReturn ? (
+  <span className="tag">Altbestand</span>
+) : (
+  "–"
+)}
+
                       </td>
                     </tr>
                   ))}

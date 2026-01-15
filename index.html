@@ -1636,7 +1636,7 @@ const newIssue = {
   hasReturn: false,
   returnDate: null,
   pdfFileName: fileName,
- pdfWebUrl: await oneDrivePdfContentUrl(graphClient, fileName),
+pdfWebUrl: uploadedItem.webUrl || null,
 
 
 };
@@ -1923,9 +1923,10 @@ function ReturnForm({ issues, onIssuesUpdated }) {
 
       await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
-      // 3) WebUrl
-     const returnPdfWebUrl = await oneDrivePdfContentUrl(graphClient, fileName);
-;
+// 3) WebUrl
+const uploadedReturn = await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
+const returnPdfWebUrl = uploadedReturn.webUrl || null;
+
 
       // 4) issues.json: Rückgabe markieren
      const updatedIssues = await markReturnInJson(graphClient, activeIssue.id, fileName, {

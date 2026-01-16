@@ -1303,11 +1303,27 @@ function Dashboard({ issues, onRefresh }) {
     let match = true;
     const term = (search || "").toLowerCase();
 
-    if (term) {
-      match =
-        (i.employeeName || "").toLowerCase().includes(term) ||
-        (i.personnelNumber || "").toLowerCase().includes(term);
-    }
+ if (term) {
+  const norm = (s) =>
+    String(s || "")
+      .toLowerCase()
+      .trim()
+      .replace(/ä/g, "ae")
+      .replace(/ö/g, "oe")
+      .replace(/ü/g, "ue")
+      .replace(/ß/g, "ss")
+      .replace(/[,]/g, " ")     // "Nachname, Vorname" -> "Nachname  Vorname"
+      .replace(/\s+/g, " ");    // mehrfach spaces -> eins
+
+  const tokens = norm(term).split(" ").filter(Boolean);
+
+  const nameN = norm(i.employeeName);
+  const pnN = norm(i.personnelNumber);
+
+  // ✅ alle Such-Wörter müssen irgendwo vorkommen (egal in welcher Reihenfolge)
+  match = tokens.every((t) => nameN.includes(t) || pnN.includes(t));
+}
+
 
     if (match && department) {
       match = (i.department || "").trim() === department;

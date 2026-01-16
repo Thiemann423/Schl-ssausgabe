@@ -935,6 +935,8 @@ async function loadExcelIssues(graphClient) {
       });
     }
   }
+const h = issues.filter(i => (i.employeeName || "").toLowerCase().includes("hafermalz"));
+console.log("Excel-Issues Hafermalz:", h.map(x => ({ name: x.employeeName, system: x.system, id: x.id })));
 
   return issues;
 }

@@ -807,26 +807,42 @@ function parseReturnFlag(v) {
 }
 
 function normalizeSystem(s) {
-  return String(s || "")
-    .trim()
+  const x = String(s || "").trim();
+  if (!x) return null;
+
+  // HC 6 / HC6 / hc 6 -> HC6
+  const hc = x.match(/^HC\s*(\d+)$/i);
+  if (hc) return `HC${hc[1]}`;
+
+  // NR.2 / Nr 2 / nr2 -> Nr. 2
+  const nr = x.match(/^NR\.?\s*(\d+)(.*)$/i);
+  if (nr) return `Nr. ${nr[1]}${nr[2] || ""}`.trim();
+
+  // alles andere groß & sauber
+  return x
     .replace(/\s+/g, " ")
     .toUpperCase();
 }
 
 
 
+
 async function loadExcelIssues(graphClient) {
   const { driveId } = await getSharedContext(graphClient);
+
   const item = await findItemByName(
     graphClient,
     "Schlüssel Schließplan Verteilung Mitarbeiter.xlsx"
   );
+
   const sheetName = "Tabelle1";
 
-  const rangeUrl = `/drives/${driveId}/items/${item.id}/workbook/worksheets('${sheetName}')/usedRange(valuesOnly=true)`;
+  const rangeUrl =
+    `/drives/${driveId}/items/${item.id}/workbook/worksheets('${sheetName}')/usedRange(valuesOnly=true)`;
+
   const json = await graphClient.get(rangeUrl, "json");
 
-  const rows = json.values;
+  const rows = json?.values;
   if (!rows || rows.length === 0) return [];
 
   const header = rows[0].map((h) => String(h || "").trim());
@@ -850,21 +866,26 @@ async function loadExcelIssues(graphClient) {
     return headerNorm.findIndex((h) => cand.includes(h));
   };
 
-  // 🔥 robuste Spalten-Zuordnungen
-  const idxAbteilung = indexOfAny("Abteilung");
+  // Robuste Spalten-Zuordnungen
+  const idxAbteilung  = indexOfAny("Abteilung");
   const idxPersonalnr = indexOfAny("Personalnummer", "Personalnr.", "PersNr", "PN");
-  const idxName = indexOfAny("Name", "Mitarbeiter");
-  const idxSystem = indexOfAny("Schließsystem", "Schliesssystem", "System");
-  const idxWeitere = indexOfAny("weitere Schlüssel", "Weitere Schlüssel", "Bemerkung");
-  const idxDatum = indexOfAny("Datum", "Ausgabedatum");
-  const idxRueckgabe = indexOfAny("Rückgabe", "Rueckgabe", "Return");
+  const idxName       = indexOfAny("Name", "Mitarbeiter");
+  const idxSystem     = indexOfAny("Schließsystem", "Schliesssystem", "System");
+  const idxWeitere    = indexOfAny("weitere Schlüssel", "Weitere Schlüssel", "Bemerkung");
+  const idxDatum      = indexOfAny("Datum", "Ausgabedatum");
+  const idxRueckgabe  = indexOfAny("Rückgabe", "Rueckgabe", "Return");
 
   const issues = [];
 
-  for (const row of dataRows) {
+  // ✅ WICHTIG: wir brauchen den Zeilenindex, um eindeutige IDs zu bauen
+  for (let r = 0; r < dataRows.length; r++) {
+    const row = dataRows[r];
     if (!row || row.length === 0) continue;
 
-    // ⚠️ hier NICHT alles zu String machen – Rückgabe kann Zahl sein
+    // Excel-Zeilennummer (1=Header, 2=erste Datenzeile)
+    const excelRowNumber = r + 2;
+
+    // raw kann Zahl/Datum/Text sein
     const raw = (idx) => (idx >= 0 && idx < row.length ? row[idx] : null);
 
     const value = (idx) => {
@@ -878,50 +899,51 @@ async function loadExcelIssues(graphClient) {
     const name = value(idxName);
 
     // Personalnummer robust normalisieren (auch wenn Excel 1234.0 liefert)
-    let personnelNumber = pnRaw;
+    let personnelNumber = null;
     if (pnRaw != null && pnRaw !== "") {
       const pnStr = String(pnRaw).trim();
       personnelNumber = /^\d+\.0$/.test(pnStr) ? String(parseInt(pnStr, 10)) : pnStr;
-    } else {
-      personnelNumber = null;
+      // normalizePn darf ruhig null können
+      personnelNumber = normalizePn(personnelNumber);
     }
-    personnelNumber = normalizePn(personnelNumber);
 
-    // 🔥 Schließsystem splitten (auch bei Zeilenumbrüchen)
-    const systemRaw = value(idxSystem); // z.B. "HAL 639, HC7"
+    // Schließsystem splitten (auch bei Zeilenumbrüchen)
+    const systemRaw = value(idxSystem); // z.B. "HC 6, HC7, HC 9, 639"
     const systemsArr = systemRaw
       ? String(systemRaw)
-          .split(/[,;/\n\r]/) // ✅ auch line breaks
-          .map(normalizeSystem)
+          .split(/[,;/\n\r]/) // trennt bei Komma, Semikolon, Slash, Linebreak
+          .map((s) => (typeof normalizeSystem === "function" ? normalizeSystem(s) : String(s).trim()))
           .filter(Boolean)
       : [];
 
     const otherKeys = value(idxWeitere);
     const dateVal = raw(idxDatum);
-    const rueckgabeRaw = raw(idxRueckgabe); // kann Zahl/Datum/Text sein
+    const rueckgabeRaw = raw(idxRueckgabe);
 
     const issueDate = excelSerialToIsoDate(dateVal);
 
-    // ✅ nur echte Rückgaben als Rückgabe werten
-    const hasReturn = parseReturnFlag(rueckgabeRaw);
+    // nur echte Rückgaben als Rückgabe werten
+    const hasReturn =
+      typeof parseReturnFlag === "function" ? parseReturnFlag(rueckgabeRaw) : !!(rueckgabeRaw && String(rueckgabeRaw).trim());
+
     const returnInfo =
       rueckgabeRaw == null || String(rueckgabeRaw).trim() === ""
         ? null
         : String(rueckgabeRaw).trim();
 
-    // ✅ mindestens eine Zeile erzeugen (auch wenn kein System drin steht)
+    // mindestens eine Zeile erzeugen (auch wenn kein System drin steht)
     const systemList = systemsArr.length ? systemsArr : [null];
 
     for (const sys of systemList) {
-      // ✅ stabile ID je System
-      const stableId = `${personnelNumber || ""}_${issueDate || ""}_${sys || ""}`;
+      // ✅ FIX: eindeutige ID pro Excel-ZEILE (+ System), damit nichts überschrieben wird
+      const stableId = `excel_${item.id}_${excelRowNumber}_${sys || "n/a"}`;
 
       issues.push({
         id: stableId,
         employeeName: name,
         personnelNumber,
         department,
-        system: sys, // <-- pro Zeile ein System
+        system: sys,
         otherKeys,
         issueDate,
 
@@ -935,11 +957,19 @@ async function loadExcelIssues(graphClient) {
       });
     }
   }
-const h = issues.filter(i => (i.employeeName || "").toLowerCase().includes("hafermalz"));
-console.log("Excel-Issues Hafermalz:", h.map(x => ({ name: x.employeeName, system: x.system, id: x.id })));
+
+  // Debug (kannst du später entfernen)
+  const h = issues.filter((i) => (i.employeeName || "").toLowerCase().includes("hafermalz"));
+  console.log(
+    "Excel-Issues Hafermalz:",
+    h.map((x) => ({ name: x.employeeName, system: x.system, id: x.id }))
+  );
+
+  console.log("Excel-Issues total:", issues.length);
 
   return issues;
 }
+
 
 
 function excelSerialToIsoDate(v) {

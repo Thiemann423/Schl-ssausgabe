@@ -617,16 +617,27 @@ async function oneDrivePdfContentUrl(graphClient, fileName) {
 async function findItemByName(graphClient, fileName) {
   const { driveId, folderId } = await getSharedContext(graphClient);
 
-  // Suche NUR innerhalb des geteilten Ordners
   const q = encodeURIComponent(fileName);
   const res = await graphClient.get(
     `/drives/${driveId}/items/${folderId}/search(q='${q}')`
   );
 
-  const hit = res?.value?.[0];
-  if (!hit) throw new Error(`Datei nicht gefunden: ${fileName} (Shared folder search)`);
+  const list = res?.value || [];
+  if (!list.length) throw new Error(`Datei nicht gefunden: ${fileName}`);
+
+  // ✅ exakten Namen bevorzugen (case-insensitive)
+  const exact = list.find(
+    (x) => String(x.name || "").toLowerCase() === String(fileName).toLowerCase()
+  );
+
+  const hit = exact || list[0];
+
+  // 🔍 Debug (kurz drin lassen zum Prüfen)
+  console.log("findItemByName:", fileName, "->", hit.name, hit.id);
+
   return hit;
 }
+
 
 
 

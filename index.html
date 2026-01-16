@@ -802,9 +802,7 @@ function normalizeSystem(s) {
     .toUpperCase();
 }
 
-function normalizePn(pn) {
-  return String(pn || "").trim();
-}
+
 
 async function loadExcelIssues(graphClient) {
   const { driveId } = await getSharedContext(graphClient);

@@ -1717,9 +1717,17 @@ function IssueForm({ employees, keys, onIssuesUpdated }) {
   const [comment, setComment] = useState("");
   const [issuedBySignature, setIssuedBySignature] = useState(null);
   const [receivedBySignature, setReceivedBySignature] = useState(null);
+  const [selectedDepartment, setSelectedDepartment] = useState("");
 
   // ✅ sorgt dafür, dass die SignaturePads nach Erfolg "neu" gerendert werden
   const [sigReset, setSigReset] = useState(0);
+  const departmentOptions = Array.from(
+    new Set(
+      employees
+        .map((e) => (e.department || "").trim())
+        .filter(Boolean)
+    )
+  ).sort((a, b) => a.localeCompare(b, "de"));
 
   const filteredEmployees = employees.filter((e) => {
     const term = employeeSearch.toLowerCase();
@@ -1731,15 +1739,21 @@ function IssueForm({ employees, keys, onIssuesUpdated }) {
   });
 
   const handleSelectEmployee = (id) => {
-    const emp = employees.find((e) => e.employeeId === id);
-    setSelectedEmployee(emp || null);
-  };
+  const emp = employees.find((e) => e.employeeId === id) || null;
+  setSelectedEmployee(emp);
+
+  // ✅ Abteilung vorbelegen (falls vorhanden), sonst leer
+  setSelectedDepartment((emp?.department || "").trim());
+};
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    if (!selectedEmployee || !selectedKeyId || !issuedBySignature || !receivedBySignature) {
-      alert("Bitte Mitarbeiter, Schlüssel und beide Unterschriften erfassen.");
+  if (!selectedEmployee || !selectedDepartment || !selectedKeyId || !issuedBySignature || !receivedBySignature) {
+
+ alert("Bitte Mitarbeiter, Abteilung, Schlüssel und beide Unterschriften erfassen.");
+
       return;
     }
 
@@ -1759,15 +1773,21 @@ function IssueForm({ employees, keys, onIssuesUpdated }) {
     };
 
     try {
-      // 1) PDF erzeugen
-      const pdfBlob = await generateKeyProtocolPdfBlob({
-        type: "ISSUE",
-        employee: selectedEmployee,
-        key,
-        comment,
-        issuedSig: issuedBySignature,
-        receivedSig: receivedBySignature,
-      });
+  // 1) PDF erzeugen (mit gewählter Abteilung)
+const employeeForPdf = { 
+  ...selectedEmployee, 
+  department: selectedDepartment 
+};
+
+const pdfBlob = await generateKeyProtocolPdfBlob({
+  type: "ISSUE",
+  employee: employeeForPdf,
+  key,
+  comment,
+  issuedSig: issuedBySignature,
+  receivedSig: receivedBySignature,
+});
+
 
       // 2) OneDrive Upload
       const { graphClient } = await getGraphClient();
@@ -1784,7 +1804,7 @@ const newIssue = {
   id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()),
   employeeName: selectedEmployee.fullName,
   personnelNumber: selectedEmployee.personnelNumber,
-  department: selectedEmployee.department || "",
+  department: selectedDepartment || "",   // ✅ WICHTIG
   system: key?.system || "",
   keyId: selectedKeyId,
   otherKeys: comment || "",
@@ -1792,10 +1812,9 @@ const newIssue = {
   hasReturn: false,
   returnDate: null,
   pdfFileName: fileName,
-pdfWebUrl: uploadedItem.webUrl || null,
-
-
+  pdfWebUrl: uploadedItem.webUrl || null,
 };
+
 
 const updatedIssues = await appendIssueToJson(graphClient, newIssue);
 
@@ -1865,9 +1884,24 @@ alert("✅ Ausgabe gespeichert & PDF in OneDrive abgelegt.");
           {selectedEmployee && (
             <>
               <div className="form-group">
-                <label className="form-label">Abteilung</label>
-                <input className="input" value={selectedEmployee.department || ""} readOnly />
-              </div>
+  <label className="form-label">Abteilung</label>
+  <select
+    className="select"
+    value={selectedDepartment}
+    onChange={(e) => setSelectedDepartment(e.target.value)}
+  >
+    <option value="">Bitte auswählen…</option>
+    {departmentOptions.map((d) => (
+      <option key={d} value={d}>
+        {d}
+      </option>
+    ))}
+  </select>
+  <div className="form-help">
+    Bitte Abteilung für die Ausgabe wählen (wird im Protokoll gespeichert).
+  </div>
+</div>
+
 
               <div className="form-group">
                 <label className="form-label">Personalnummer</label>

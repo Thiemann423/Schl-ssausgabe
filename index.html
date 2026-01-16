@@ -772,117 +772,164 @@ async function appendEmployeeToPersonalTxt(graphClient, { personnelNumber, fullN
 }
 
 
+// ✅ Robust: erkennt Rückgabe nur bei echten Markern/Datum
+function parseReturnFlag(v) {
+  if (v == null) return false;
+
+  // Excel kann Datumswerte auch als Zahl liefern (Serial)
+  if (typeof v === "number" && isFinite(v)) return true;
+
+  const s = String(v).trim().toLowerCase();
+  if (!s) return false;
+
+  // typische Marker
+  if (["x", "ja", "j", "yes", "y", "true", "ok", "done", "erledigt"].includes(s)) return true;
+
+  // deutsches Datum: 01.05.2022
+  if (/^\d{1,2}\.\d{1,2}\.\d{2,4}$/.test(s)) return true;
+
+  // ISO Datum: 2022-05-01
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return true;
+
+  // alles andere NICHT als Rückgabe zählen (damit Kommentare nicht alles "zurückgegeben" machen)
+  return false;
+}
+
+function normalizeSystem(s) {
+  return String(s || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
+function normalizePn(pn) {
+  return String(pn || "").trim();
+}
+
 async function loadExcelIssues(graphClient) {
   const { driveId } = await getSharedContext(graphClient);
-  const item = await findItemByName(graphClient, "Schlüssel Schließplan Verteilung Mitarbeiter.xlsx");
+  const item = await findItemByName(
+    graphClient,
+    "Schlüssel Schließplan Verteilung Mitarbeiter.xlsx"
+  );
   const sheetName = "Tabelle1";
 
-  const rangeUrl =
-    `/drives/${driveId}/items/${item.id}/workbook/worksheets('${sheetName}')/usedRange(valuesOnly=true)`;
-
+  const rangeUrl = `/drives/${driveId}/items/${item.id}/workbook/worksheets('${sheetName}')/usedRange(valuesOnly=true)`;
   const json = await graphClient.get(rangeUrl, "json");
 
   const rows = json.values;
   if (!rows || rows.length === 0) return [];
 
-const header = rows[0].map((h) => String(h || "").trim());
-const dataRows = rows.slice(1);
+  const header = rows[0].map((h) => String(h || "").trim());
+  const dataRows = rows.slice(1);
 
-// Normalisierung für robuste Excel-Header-Erkennung
-const norm = (s) =>
-  String(s || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/ä/g, "ae")
-    .replace(/ö/g, "oe")
-    .replace(/ü/g, "ue")
-    .replace(/ß/g, "ss");
+  // Normalisierung für robuste Excel-Header-Erkennung
+  const norm = (s) =>
+    String(s || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .replace(/ä/g, "ae")
+      .replace(/ö/g, "oe")
+      .replace(/ü/g, "ue")
+      .replace(/ß/g, "ss");
 
-const headerNorm = header.map(norm);
+  const headerNorm = header.map(norm);
 
-const indexOfAny = (...candidates) => {
-  const cand = candidates.map(norm);
-  return headerNorm.findIndex((h) => cand.includes(h));
-};
+  const indexOfAny = (...candidates) => {
+    const cand = candidates.map(norm);
+    return headerNorm.findIndex((h) => cand.includes(h));
+  };
 
-// 🔥 Hier deine neuen robusten Spalten-Zuordnungen
-const idxAbteilung  = indexOfAny("Abteilung");
-const idxPersonalnr = indexOfAny("Personalnummer", "Personalnr.", "PersNr", "PN");
-const idxName       = indexOfAny("Name", "Mitarbeiter");
-const idxSystem     = indexOfAny("Schließsystem", "Schliesssystem", "System");
-const idxWeitere    = indexOfAny("weitere Schlüssel", "Weitere Schlüssel", "Bemerkung");
-const idxDatum      = indexOfAny("Datum", "Ausgabedatum");
-const idxRueckgabe  = indexOfAny("Rückgabe", "Rueckgabe", "Return");
+  // 🔥 robuste Spalten-Zuordnungen
+  const idxAbteilung = indexOfAny("Abteilung");
+  const idxPersonalnr = indexOfAny("Personalnummer", "Personalnr.", "PersNr", "PN");
+  const idxName = indexOfAny("Name", "Mitarbeiter");
+  const idxSystem = indexOfAny("Schließsystem", "Schliesssystem", "System");
+  const idxWeitere = indexOfAny("weitere Schlüssel", "Weitere Schlüssel", "Bemerkung");
+  const idxDatum = indexOfAny("Datum", "Ausgabedatum");
+  const idxRueckgabe = indexOfAny("Rückgabe", "Rueckgabe", "Return");
 
+  const issues = [];
 
-const issues = [];
+  for (const row of dataRows) {
+    if (!row || row.length === 0) continue;
 
-for (const row of dataRows) {
-  if (!row || row.length === 0) continue;
+    // ⚠️ hier NICHT alles zu String machen – Rückgabe kann Zahl sein
+    const raw = (idx) => (idx >= 0 && idx < row.length ? row[idx] : null);
 
-  const value = (idx) =>
-    idx >= 0 && idx < row.length && row[idx] != null && row[idx] !== ""
-      ? String(row[idx]).trim()
-      : null;
+    const value = (idx) => {
+      const v = raw(idx);
+      if (v == null || v === "") return null;
+      return String(v).trim();
+    };
 
-  const department = value(idxAbteilung);
-  const pnRaw = value(idxPersonalnr);
-  const name = value(idxName);
+    const department = value(idxAbteilung);
+    const pnRaw = raw(idxPersonalnr);
+    const name = value(idxName);
 
-  // 🔥 neu: raw aus Excel lesen und splitten
-  const systemRaw = value(idxSystem); // z.B. "HAL 639, HC7"
-  const systemsArr = systemRaw
-    ? String(systemRaw)
-        .split(/[,;/]/)          // trennt bei , ; /
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
+    // Personalnummer robust normalisieren (auch wenn Excel 1234.0 liefert)
+    let personnelNumber = pnRaw;
+    if (pnRaw != null && pnRaw !== "") {
+      const pnStr = String(pnRaw).trim();
+      personnelNumber = /^\d+\.0$/.test(pnStr) ? String(parseInt(pnStr, 10)) : pnStr;
+    } else {
+      personnelNumber = null;
+    }
+    personnelNumber = normalizePn(personnelNumber);
 
-  const otherKeys = value(idxWeitere);
-  const dateVal = value(idxDatum);
-  const rueckgabe = value(idxRueckgabe);
+    // 🔥 Schließsystem splitten (auch bei Zeilenumbrüchen)
+    const systemRaw = value(idxSystem); // z.B. "HAL 639, HC7"
+    const systemsArr = systemRaw
+      ? String(systemRaw)
+          .split(/[,;/\n\r]/) // ✅ auch line breaks
+          .map(normalizeSystem)
+          .filter(Boolean)
+      : [];
 
-  const issueDate = excelSerialToIsoDate(dateVal);
+    const otherKeys = value(idxWeitere);
+    const dateVal = raw(idxDatum);
+    const rueckgabeRaw = raw(idxRueckgabe); // kann Zahl/Datum/Text sein
 
-  const hasReturn = !!(rueckgabe && String(rueckgabe).trim());
-  const returnInfo = rueckgabe || null;
+    const issueDate = excelSerialToIsoDate(dateVal);
 
-  let personnelNumber = pnRaw;
-  if (pnRaw && /^\d+\.0$/.test(pnRaw)) {
-    personnelNumber = String(parseInt(pnRaw, 10));
+    // ✅ nur echte Rückgaben als Rückgabe werten
+    const hasReturn = parseReturnFlag(rueckgabeRaw);
+    const returnInfo =
+      rueckgabeRaw == null || String(rueckgabeRaw).trim() === ""
+        ? null
+        : String(rueckgabeRaw).trim();
+
+    // ✅ mindestens eine Zeile erzeugen (auch wenn kein System drin steht)
+    const systemList = systemsArr.length ? systemsArr : [null];
+
+    for (const sys of systemList) {
+      // ✅ stabile ID je System
+      const stableId = `${personnelNumber || ""}_${issueDate || ""}_${sys || ""}`;
+
+      issues.push({
+        id: stableId,
+        employeeName: name,
+        personnelNumber,
+        department,
+        system: sys, // <-- pro Zeile ein System
+        otherKeys,
+        issueDate,
+
+        hasReturn,
+        returnInfo,
+
+        pdfFileName: null,
+        pdfWebUrl: null,
+        returnPdfFileName: null,
+        returnPdfWebUrl: null,
+      });
+    }
   }
 
-  // ✅ mindestens eine Zeile erzeugen (auch wenn kein System drin steht)
-  const systemList = systemsArr.length ? systemsArr : [null];
-
-  for (const sys of systemList) {
-    // ✅ stabile ID je System
-    const stableId = `${personnelNumber || ""}_${issueDate || ""}_${sys || ""}`;
-
-    issues.push({
-      id: stableId,
-      employeeName: name,
-      personnelNumber,
-      department,
-      system: sys, // <-- pro Zeile ein System
-      otherKeys,
-      issueDate,
-
-      hasReturn,
-      returnInfo,
-
-      pdfFileName: null,
-      pdfWebUrl: null,
-      returnPdfFileName: null,
-      returnPdfWebUrl: null,
-    });
-  }
+  return issues;
 }
 
-
-return issues;
-}
 
 function excelSerialToIsoDate(v) {
   if (!v) return null;
@@ -1164,8 +1211,7 @@ function Dashboard({ issues, onRefresh }) {
   const [search, setSearch] = useState("");
   const [department, setDepartment] = useState("");
   const [system, setSystem] = useState("");
-  const [status, setStatus] = useState("OPEN"); // OPEN | RETURNED | RETURNED_PDF | LEGACY | ALL
-
+ const [status, setStatus] = useState("ALL");
   async function openPdfByFileName(fileName) {
   if (!fileName) return;
   try {

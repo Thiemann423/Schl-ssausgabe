@@ -1822,20 +1822,20 @@ const updatedIssues = await appendIssueToJson(graphClient, newIssue);
 if (typeof onIssuesUpdated === "function") onIssuesUpdated(updatedIssues);
 
 
-
 alert("✅ Ausgabe gespeichert & PDF in OneDrive abgelegt.");
 
+// ✅ kompletter Reset nach Erfolg (auch aus Sicherheitsgründen)
+setEmployeeSearch("");
+setSelectedEmployee(null);
+setSelectedDepartment(""); // ✅ NEU: Abteilung zurücksetzen
+setSelectedKeyId("");
+setComment("");
+setIssuedBySignature(null);
+setReceivedBySignature(null);
 
-      // ✅ kompletter Reset nach Erfolg (auch aus Sicherheitsgründen)
-      setEmployeeSearch("");
-      setSelectedEmployee(null);
-      setSelectedKeyId("");
-      setComment("");
-      setIssuedBySignature(null);
-      setReceivedBySignature(null);
+// ✅ Canvas wirklich leeren (SignaturePad neu mounten)
+setSigReset((x) => x + 1);
 
-      // ✅ Canvas wirklich leeren (SignaturePad neu mounten)
-      setSigReset((x) => x + 1);
     } catch (err) {
       console.error(err);
       alert("❌ Ausgabe fehlgeschlagen: " + (err?.message || String(err)));

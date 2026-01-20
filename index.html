@@ -2199,8 +2199,19 @@ function ReturnForm({ issues, onIssuesUpdated }) {
 
   // 2) Upload nach OneDrive (NUR EINMAL!)
 const folder = "SchluesselAusgabe";
+
 const pn = activeIssue?.personnelNumber || "unknown";
-const fileName = `Schluessel-Rueckgabe_${pn}_${isoDate()}.pdf`;
+const sys = (activeIssue?.system || "unknown").replace(/\s+/g, ""); // z.B. "HAL 639" -> "HAL639"
+const safeId = String(activeIssue?.id || Date.now()).replace(/[^a-zA-Z0-9_-]/g, "_");
+
+// optional: Uhrzeit für 100% Unique (auch bei gleichem System am selben Tag)
+const t = new Date();
+const hhmmss = String(t.getHours()).padStart(2, "0")
+  + String(t.getMinutes()).padStart(2, "0")
+  + String(t.getSeconds()).padStart(2, "0");
+
+const fileName = `Schluessel-Rueckgabe_${pn}_${sys}_${isoDate()}_${hhmmss}_${safeId}.pdf`;
+;
 
 const uploadedReturn = await uploadPdfToOneDrive({
   graphClient,

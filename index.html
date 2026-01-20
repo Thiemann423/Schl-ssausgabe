@@ -1098,19 +1098,53 @@ async function fetchOneDriveData() {
   // ✅ Excel + JSON zusammenführen (JSON überschreibt Excel fachlich!)
   const map = new Map();
 
-  const normName = (s) =>
-    String(s || "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, " ");
+const normText = (s) =>
+  String(s || "")
+    .replace(/\u00A0/g, " ")   // NBSP -> Space
+    .trim()
+    .toLowerCase()
+    .replace(/[,]/g, " ")      // "Nachname, Vorname" -> "Nachname Vorname"
+    .replace(/\s+/g, " ");     // mehrere Spaces -> eins
 
-  const makeBusinessKey = (i) =>
-    [
-      normName(i.employeeName),
-      String(i.personnelNumber || "").trim(),
-      String(i.issueDate || "").trim(),
-      String(i.system || "").trim(),
-    ].join("|");
+const normSystem = (s) => {
+  const v = String(s || "").trim();
+  if (!v) return "";
+  // nutzt eure bestehende normalizeSystem() Logik (HC 6 -> HC6, Nr 3 -> Nr. 3, etc.)
+  return (typeof normalizeSystem === "function" ? normalizeSystem(v) : v).trim();
+};
+
+const normDate = (d) => {
+  if (!d) return "";
+  const s = String(d).trim();
+
+  // schon ISO?
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // deutsches Datum 25.9.2001 / 25.09.2001
+  const m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{2,4})$/);
+  if (m) {
+    const dd = String(m[1]).padStart(2, "0");
+    const mm = String(m[2]).padStart(2, "0");
+    let yyyy = m[3];
+    if (yyyy.length === 2) yyyy = "20" + yyyy; // falls mal 2-stellig
+    return `${yyyy}-${mm}-${dd}`;
+  }
+
+  // letzter Versuch: Date.parse
+  const dt = new Date(s);
+  if (!isNaN(dt)) return dt.toISOString().slice(0, 10);
+
+  return s;
+};
+
+const makeBusinessKey = (i) =>
+  [
+    normText(i.employeeName),
+    String(i.personnelNumber || "").trim(),
+    normDate(i.issueDate),
+    normSystem(i.system),
+  ].join("|");
+
 
   // 1) Excel rein
   (issuesFromExcel || []).forEach((i) => {

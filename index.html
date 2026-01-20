@@ -1887,10 +1887,20 @@ const pdfBlob = await generateKeyProtocolPdfBlob({
       const folder = "SchluesselAusgabe";
 
 const newIssueId = crypto?.randomUUID ? crypto.randomUUID() : String(Date.now());
-const pn = selectedEmployee.personnelNumber || "unknown";
-const sys = (key?.system || "unknown").replace(/\s+/g, ""); // "HAL 639" -> "HAL639"
+
+// 🔒 Personalnummer sicher machen
+const pn = String(selectedEmployee.personnelNumber || "unknown")
+  .trim()
+  .replace(/[^a-zA-Z0-9_-]/g, "_");
+
+// 🔒 Schließsystem sicher machen
+const sys = String(key?.system || "unknown")
+  .trim()
+  .replace(/\s+/g, "")
+  .replace(/[^a-zA-Z0-9_-]/g, "_");
 
 const fileName = `Schluessel-Ausgabe_${pn}_${sys}_${isoDate()}_${newIssueId}.pdf`;
+
 
 const uploadedItem = await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
@@ -2215,7 +2225,7 @@ const hhmmss = String(t.getHours()).padStart(2, "0")
   + String(t.getSeconds()).padStart(2, "0");
 const fileName = `Schluessel-Rueckgabe_${pn}_${sys}_${isoDate()}_${hhmmss}_${safeId}.pdf`;
 
-;
+
 
 const uploadedReturn = await uploadPdfToOneDrive({
   graphClient,

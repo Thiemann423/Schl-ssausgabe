@@ -1747,7 +1747,8 @@ async function markReturnInJson(graphClient, issueId, returnFileName, extra = {}
       hasReturn: true,
       returnDate: isoDate(),
       returnPdfFileName: returnFileName,
-      returnPdfWebUrl: extra.returnPdfWebUrl || x.returnPdfWebUrl || null,
+      returnPdfWebUrl: extra.returnPdfWebUrl ?? x.returnPdfWebUrl ?? null,
+
       returnIssuedSig: extra.returnIssuedSig || null,
       returnReceivedSig: extra.returnReceivedSig || null,
     };
@@ -1883,19 +1884,21 @@ const pdfBlob = await generateKeyProtocolPdfBlob({
       // 2) OneDrive Upload
       const { graphClient } = await getGraphClient();
 
-      const folder = "SchluesselAusgabe"; // <- exakt wie in OneDrive
-      const fileName = `Schluessel-Ausgabe_${selectedEmployee.personnelNumber}_${isoDate()}.pdf`;
+      const folder = "SchluesselAusgabe";
+
+const newIssueId = crypto?.randomUUID ? crypto.randomUUID() : String(Date.now());
+const pn = selectedEmployee.personnelNumber || "unknown";
+const sys = (key?.system || "unknown").replace(/\s+/g, ""); // "HAL 639" -> "HAL639"
+
+const fileName = `Schluessel-Ausgabe_${pn}_${sys}_${isoDate()}_${newIssueId}.pdf`;
 
 const uploadedItem = await uploadPdfToOneDrive({ graphClient, folder, fileName, pdfBlob });
 
-// --------------------------------------------
-// ✅ HIER: Issue auch in issues.json speichern
-// --------------------------------------------
 const newIssue = {
-  id: crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()),
+  id: newIssueId,
   employeeName: selectedEmployee.fullName,
   personnelNumber: selectedEmployee.personnelNumber,
-  department: selectedDepartment || "",   // ✅ WICHTIG
+  department: selectedDepartment || "",
   system: key?.system || "",
   keyId: selectedKeyId,
   otherKeys: comment || "",
@@ -1905,6 +1908,7 @@ const newIssue = {
   pdfFileName: fileName,
   pdfWebUrl: uploadedItem.webUrl || null,
 };
+
 
 
 const updatedIssues = await appendIssueToJson(graphClient, newIssue);
@@ -2209,8 +2213,8 @@ const t = new Date();
 const hhmmss = String(t.getHours()).padStart(2, "0")
   + String(t.getMinutes()).padStart(2, "0")
   + String(t.getSeconds()).padStart(2, "0");
-
 const fileName = `Schluessel-Rueckgabe_${pn}_${sys}_${isoDate()}_${hhmmss}_${safeId}.pdf`;
+
 ;
 
 const uploadedReturn = await uploadPdfToOneDrive({

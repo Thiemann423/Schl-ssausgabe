@@ -1091,73 +1091,87 @@ async function fetchOneDriveData() {
   const employees = mergeEmployees([...employeesFromTxt], issuesFromExcel);
   const keys = buildKeysFromIssues(issuesFromExcel);
 
-// ✅ Issues kommen aus OneDrive JSON (Source of Truth)
-const folder = "SchluesselAusgabe";
-const jsonIssues = await getOrCreateIssuesJson(graphClient, folder);
+  // ✅ Issues kommen aus OneDrive JSON (Source of Truth)
+  const folder = "SchluesselAusgabe";
+  const jsonIssues = await getOrCreateIssuesJson(graphClient, folder);
 
-// ✅ Excel + JSON zusammenführen (JSON überschreibt Excel bei gleicher id)
-const map = new Map();
+  // ✅ Excel + JSON zusammenführen (JSON überschreibt Excel fachlich!)
+  const map = new Map();
 
-const makeId = (i) =>
-  String(i.id ?? `${i.personnelNumber || ""}_${i.issueDate || ""}_${i.system || ""}`);
+  const normName = (s) =>
+    String(s || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
 
-// 1) erst Excel rein
-(issuesFromExcel || []).forEach((i) => {
-  const id = makeId(i);
-  map.set(id, { ...i, id });
-});
+  const makeBusinessKey = (i) =>
+    [
+      normName(i.employeeName),
+      String(i.personnelNumber || "").trim(),
+      String(i.issueDate || "").trim(),
+      String(i.system || "").trim(),
+    ].join("|");
 
-// 2) dann JSON drüber
-(jsonIssues || []).forEach((i) => {
-  const id = makeId(i);
-  map.set(id, { ...map.get(id), ...i, id });
-});
+  // 1) Excel rein
+  (issuesFromExcel || []).forEach((i) => {
+    const bkey = makeBusinessKey(i);
+    map.set(bkey, { ...i, _source: "EXCEL" });
+  });
 
-let issues = Array.from(map.values());
+  // 2) JSON drüber → überschreibt Excel bei gleichem Business-Key
+  (jsonIssues || []).forEach((i) => {
+    const bkey = makeBusinessKey(i);
+    map.set(bkey, { ...map.get(bkey), ...i, _source: "JSON" });
+  });
 
-// ✅ alte graph.microsoft.com/.../content Links in webUrl umwandeln
-const isGraphContent = (u) =>
-  typeof u === "string" &&
-  u.includes("graph.microsoft.com") &&
-  u.includes("/content");
+  let issues = Array.from(map.values());
 
-// nur reparieren wenn wirklich nötig
-let changed = false;
+  // ✅ alte graph.microsoft.com/.../content Links in webUrl umwandeln
+  const isGraphContent = (u) =>
+    typeof u === "string" &&
+    u.includes("graph.microsoft.com") &&
+    u.includes("/content");
 
-issues = await Promise.all(
-  issues.map(async (i) => {
-    try {
-      // Ausgabe-PDF reparieren
-      if (isGraphContent(i.pdfWebUrl) && i.pdfFileName) {
-        const item = await findItemByName(graphClient, i.pdfFileName);
-        if (item?.webUrl) {
-          i = { ...i, pdfWebUrl: item.webUrl };
-          changed = true;
+  // nur reparieren wenn wirklich nötig
+  let changed = false;
+
+  issues = await Promise.all(
+    issues.map(async (i) => {
+      try {
+        // Ausgabe-PDF reparieren
+        if (isGraphContent(i.pdfWebUrl) && i.pdfFileName) {
+          const item = await findItemByName(graphClient, i.pdfFileName);
+          if (item?.webUrl) {
+            i = { ...i, pdfWebUrl: item.webUrl };
+            changed = true;
+          }
         }
-      }
 
-      // Rückgabe-PDF reparieren
-      if (isGraphContent(i.returnPdfWebUrl) && i.returnPdfFileName) {
-        const item = await findItemByName(graphClient, i.returnPdfFileName);
-        if (item?.webUrl) {
-          i = { ...i, returnPdfWebUrl: item.webUrl };
-          changed = true;
+        // Rückgabe-PDF reparieren
+        if (isGraphContent(i.returnPdfWebUrl) && i.returnPdfFileName) {
+          const item = await findItemByName(graphClient, i.returnPdfFileName);
+          if (item?.webUrl) {
+            i = { ...i, returnPdfWebUrl: item.webUrl };
+            changed = true;
+          }
         }
+      } catch (e) {
+        // wenn Datei nicht gefunden wird: ignorieren
       }
-    } catch (e) {
-      // wenn Datei nicht gefunden wird: ignorieren
-    }
-    return i;
-  })
-);
+      return i;
+    })
+  );
 
-// ✅ wenn wir was repariert haben: issues.json einmalig aktualisieren
-if (changed) {
-  await saveIssuesJson(graphClient, issues);
+  // ✅ wenn wir was repariert haben: issues.json einmalig aktualisieren
+  // ⚠️ Hinweis: Damit würdest du auch Excel-Datensätze mitspeichern (weil 'issues' gemerged ist).
+  // Wenn du das NICHT willst, sag Bescheid – dann speichern wir nur JSON-Items zurück.
+  if (changed) {
+    await saveIssuesJson(graphClient, issues);
+  }
+
+  return { employees, keys, issues, account };
 }
 
-return { employees, keys, issues, account };
-}
 
 
 

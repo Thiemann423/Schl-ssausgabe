@@ -867,15 +867,18 @@ async function loadExcelIssues(graphClient) {
   };
 
   // Robuste Spalten-Zuordnungen
-  const idxAbteilung  = indexOfAny("Abteilung");
+  const idxAbteilung = indexOfAny("Abteilung");
   const idxPersonalnr = indexOfAny("Personalnummer", "Personalnr.", "PersNr", "PN");
-  const idxName       = indexOfAny("Name", "Mitarbeiter");
-  const idxSystem     = indexOfAny("Schließsystem", "Schliesssystem", "System");
-  const idxWeitere    = indexOfAny("weitere Schlüssel", "Weitere Schlüssel", "Bemerkung");
-  const idxDatum      = indexOfAny("Datum", "Ausgabedatum");
-  const idxRueckgabe  = indexOfAny("Rückgabe", "Rueckgabe", "Return");
+  const idxName = indexOfAny("Name", "Mitarbeiter");
+  const idxSystem = indexOfAny("Schließsystem", "Schliesssystem", "System");
+  const idxWeitere = indexOfAny("weitere Schlüssel", "Weitere Schlüssel", "Bemerkung");
+  const idxDatum = indexOfAny("Datum", "Ausgabedatum");
+  const idxRueckgabe = indexOfAny("Rückgabe", "Rueckgabe", "Return");
 
   const issues = [];
+
+  // 🔍 DEBUG: Dubletten zählen (später wieder entfernen)
+  const dupCount = {};
 
   // ✅ WICHTIG: wir brauchen den Zeilenindex, um eindeutige IDs zu bauen
   for (let r = 0; r < dataRows.length; r++) {
@@ -910,10 +913,18 @@ async function loadExcelIssues(graphClient) {
     // Schließsystem splitten (auch bei Zeilenumbrüchen)
     const systemRaw = value(idxSystem); // z.B. "HC 6, HC7, HC 9, 639"
     const systemsArr = systemRaw
-      ? String(systemRaw)
-          .split(/[,;/\n\r]/) // trennt bei Komma, Semikolon, Slash, Linebreak
-          .map((s) => (typeof normalizeSystem === "function" ? normalizeSystem(s) : String(s).trim()))
-          .filter(Boolean)
+      ? Array.from(
+          new Set(
+            String(systemRaw)
+              .split(/[,;/\n\r]/)
+              .map((s) =>
+                typeof normalizeSystem === "function"
+                  ? normalizeSystem(s)
+                  : String(s).trim()
+              )
+              .filter(Boolean)
+          )
+        )
       : [];
 
     const otherKeys = value(idxWeitere);
@@ -924,7 +935,9 @@ async function loadExcelIssues(graphClient) {
 
     // nur echte Rückgaben als Rückgabe werten
     const hasReturn =
-      typeof parseReturnFlag === "function" ? parseReturnFlag(rueckgabeRaw) : !!(rueckgabeRaw && String(rueckgabeRaw).trim());
+      typeof parseReturnFlag === "function"
+        ? parseReturnFlag(rueckgabeRaw)
+        : !!(rueckgabeRaw && String(rueckgabeRaw).trim());
 
     const returnInfo =
       rueckgabeRaw == null || String(rueckgabeRaw).trim() === ""
@@ -955,11 +968,24 @@ async function loadExcelIssues(graphClient) {
         returnPdfFileName: null,
         returnPdfWebUrl: null,
       });
+
+      // 🔍 DEBUG: Dubletten-Key zählen (später wieder entfernen)
+      const key = `${(name || "").toLowerCase()}|${personnelNumber || ""}|${issueDate || ""}|${sys || ""}`;
+      dupCount[key] = (dupCount[key] || 0) + 1;
     }
   }
 
-  // Debug (kannst du später entfernen)
-  const h = issues.filter((i) => (i.employeeName || "").toLowerCase().includes("hafermalz"));
+  // 🔍 DEBUG-Ausgabe: zeigt nur Keys, die mehrfach vorkommen (später wieder entfernen)
+  console.table(
+    Object.entries(dupCount)
+      .filter(([, c]) => c > 1)
+      .map(([k, c]) => ({ key: k, count: c }))
+  );
+
+  // Dein bestehender Debug (optional)
+  const h = issues.filter((i) =>
+    (i.employeeName || "").toLowerCase().includes("hafermalz")
+  );
   console.log(
     "Excel-Issues Hafermalz:",
     h.map((x) => ({ name: x.employeeName, system: x.system, id: x.id }))

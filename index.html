@@ -1199,9 +1199,10 @@ const makeBusinessKey = (i) =>
   // ✅ wenn wir was repariert haben: issues.json einmalig aktualisieren
   // ⚠️ Hinweis: Damit würdest du auch Excel-Datensätze mitspeichern (weil 'issues' gemerged ist).
   // Wenn du das NICHT willst, sag Bescheid – dann speichern wir nur JSON-Items zurück.
-  if (changed) {
-    await saveIssuesJson(graphClient, issues);
-  }
+ if (changed) {
+  await saveIssuesJson(graphClient, jsonIssues);
+}
+
 
   return { employees, keys, issues, account };
 }
